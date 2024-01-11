@@ -19,3 +19,9 @@
 
 # Go workspace file
 go.work
+earapi.json
+steamdata/
+jokedata/
+config/
+moviedata
+earapi
