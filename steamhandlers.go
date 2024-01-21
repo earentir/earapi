@@ -81,13 +81,17 @@ func steamAppDataHandler(c *gin.Context) {
 		fmt.Println(err)
 	} else {
 		c.JSON(http.StatusOK, gin.H{
-			"type":             gameDetails.Type,
+			"appid":            gameDetails.SteamAppid,
 			"name":             gameDetails.Name,
+			"type":             gameDetails.Type,
 			"free":             gameDetails.IsFree,
 			"dlc":              gameDetails.Dlc,
 			"shortdescription": gameDetails.ShortDescription,
 			"headerimage:":     gameDetails.HeaderImage,
+			"capsuleimagev5":   gameDetails.CapsuleImagev5,
 			"releasedate":      gameDetails.ReleaseDate.Date,
+			"genres":           gameDetails.Genres,
+			"tags":             gameDetails.Categories,
 		})
 	}
 }
