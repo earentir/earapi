@@ -2,16 +2,19 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 var (
-	apiversion = "v0.0.13"
+	apiversion = "v0.0.19"
 	configFile = "config/earapi.json"
 	config     earapiSettings
 )
@@ -38,10 +41,10 @@ func main() {
 
 	r.GET("/joke", jokeHandler)
 
-	movieGroup := r.Group("/movie")
+	tmdbGroup := r.Group("/tmdb")
 	{
 		// movieGroup.GET("/", movieHandler)
-		movieGroup.GET("/search", movieSearchHandler)
+		tmdbGroup.GET("/search", movieSearchHandler)
 		// movieGroup.GET("/actor", movieActorHandler)
 	}
 
@@ -52,7 +55,34 @@ func main() {
 
 	r.GET("/version", versionHandler)
 
-	r.Run(fmt.Sprintf("%s%s", ":", config.API.Port))
+	// r.Run(fmt.Sprintf("%s%s", ":", config.API.Port))
+
+	httpserver :=
+		&http.Server{
+			Addr:    fmt.Sprintf("%s%s", ":", config.API.Port),
+			Handler: r,
+		}
+
+	go func() {
+		if err := httpserver.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Println(err)
+		}
+
+	}()
+
+	//setup channels for capturing the termination signal from the OS
+	signals := make(chan os.Signal)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+
+	<-signals
+	fmt.Println("Shutting down the API")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := httpserver.Shutdown(ctx); err != nil {
+		fmt.Println(err)
+	}
 }
 
 func versionHandler(c *gin.Context) {
@@ -67,6 +97,7 @@ func rootHandler(c *gin.Context, r *gin.Engine) {
 	for _, route := range routes {
 		endpoints = append(endpoints, fmt.Sprintf("%s - %s", route.Method, route.Path))
 	}
+	endpoints = append(endpoints, fmt.Sprintf("%s - %s", "GET", "/doc"))
 	c.JSON(http.StatusOK, gin.H{
 		"endpoints": endpoints,
 	})
