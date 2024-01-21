@@ -79,19 +79,28 @@ func steamAppDataHandler(c *gin.Context) {
 	gameDetails, err := steamapidata.SteamAppDetails(appID)
 	if err != nil {
 		fmt.Println(err)
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"msg":     err.Error(),
+		})
 	} else {
 		c.JSON(http.StatusOK, gin.H{
-			"appid":            gameDetails.SteamAppid,
-			"name":             gameDetails.Name,
-			"type":             gameDetails.Type,
-			"free":             gameDetails.IsFree,
-			"dlc":              gameDetails.Dlc,
-			"shortdescription": gameDetails.ShortDescription,
-			"headerimage:":     gameDetails.HeaderImage,
-			"capsuleimagev5":   gameDetails.CapsuleImagev5,
-			"releasedate":      gameDetails.ReleaseDate.Date,
-			"genres":           gameDetails.Genres,
-			"tags":             gameDetails.Categories,
+			"success": true,
+			"msg":     "",
+			"data": gin.H{
+				"appid":            gameDetails.SteamAppid,
+				"name":             gameDetails.Name,
+				"type":             gameDetails.Type,
+				"free":             gameDetails.IsFree,
+				"dlc":              gameDetails.Dlc,
+				"shortdescription": gameDetails.ShortDescription,
+				"headerimage:":     gameDetails.HeaderImage,
+				"capsuleimagev5":   gameDetails.CapsuleImagev5,
+				"releasedate":      gameDetails.ReleaseDate.Date,
+				"genres":           gameDetails.Genres,
+				"tags":             gameDetails.Categories,
+			},
 		})
 	}
 }
