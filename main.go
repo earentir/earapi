@@ -18,39 +18,9 @@ var (
 
 func main() {
 
-	// setup stuf
-	_, err := os.Stat("config/earapi.json")
-	if os.IsNotExist(err) {
-		fmt.Println("Config file not found, creating default config file")
-		os.WriteFile("config/earapi.json", []byte(`{
-			"api": {
-				"port": "8080"
-			},
-			"apikeys": {
-				"steamapikey": "",
-				"tmdbapitoken": ""
-			}
-		}`), 0644)
-	} else {
-		fmt.Println("Config file found, loading config file")
-		js, err := os.ReadFile("config/earapi.json")
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(125)
-		}
+	loadConfig()
 
-		//decode json to struct
-		err = json.Unmarshal(js, &config)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(125)
-		}
-	}
-
-	//Create the steamdata folder if it doesn't exist
-	checkAndCreateFolders("steamdata", "jokedata", "config", "moviedata")
-
-	//setup the api
+	//setup gin to build the API
 	r := gin.Default()
 
 	// Handler for the root path
