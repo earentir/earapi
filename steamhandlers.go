@@ -125,14 +125,14 @@ func steamTopHandler(c *gin.Context) {
 }
 
 func searchSteamAppHandler(c *gin.Context) {
-	game := c.DefaultQuery("game", "Baldur's Gate 3")
+	app := c.DefaultQuery("app", "Baldur's Gate 3")
 
-	foundGame, err := steamapidata.SteamSearchApp(game)
+	foundApp, err := steamapidata.SteamSearchApp(app)
 	if err != nil {
 		fmt.Println(err)
 	} else {
 		c.JSON(http.StatusOK, gin.H{
-			"app": foundGame,
+			"app": foundApp,
 		})
 	}
 
