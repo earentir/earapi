@@ -2,16 +2,16 @@ module earapi
 
 go 1.21.5
 
-replace github.com/earentir/netflixtudumscrapper => ../netflixtudumscrapper
+//replace github.com/earentir/netflixtudumscrapper => ../netflixtudumscrapper
 
-replace github.com/earentir/steamapidata => ../steamapidata
+//replace github.com/earentir/steamapidata => ../steamapidata
 
-replace github.com/earentir/tmdbapidata => ../tmdbapidata
+//replace github.com/earentir/tmdbapidata => ../tmdbapidata
 
 require (
-	github.com/earentir/netflixtudumscrapper v0.0.0-00010101000000-000000000000
-	github.com/earentir/steamapidata v0.0.0-00010101000000-000000000000
-	github.com/earentir/tmdbapidata v0.0.0-00010101000000-000000000000
+	github.com/earentir/netflixtudumscrapper v1.0.0
+	github.com/earentir/steamapidata v1.0.0
+	github.com/earentir/tmdbapidata v1.0.0
 	github.com/gin-gonic/gin v1.9.1
 )
 
@@ -26,7 +26,7 @@ require (
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.16.0 // indirect
+	github.com/go-playground/validator/v10 v10.17.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
