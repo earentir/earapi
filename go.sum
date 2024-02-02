@@ -23,6 +23,8 @@ github.com/earentir/netflixtudumscrapper v1.0.0 h1:LU+P7FrWvTGajqp7oGqck/DUujDbQ
 github.com/earentir/netflixtudumscrapper v1.0.0/go.mod h1:5HRmNcuBQdSq54KLlU0bPEC8QYtnJrP1N/elNc+lsCs=
 github.com/earentir/steamapidata v1.0.0 h1:BKkrYqk3aNiulaNaRT5cXXs1+cnoL+R3XJRy66LS8Lc=
 github.com/earentir/steamapidata v1.0.0/go.mod h1:aJoV77sEeYCVg6TN5/Ab+GYsBwdlP9EQwY2+Vj2YXyA=
+github.com/earentir/steamapidata v1.0.1 h1:5L1adkDcPcjGWFTG5ASS56pAlzt5+LxUfZDb+56DyeM=
+github.com/earentir/steamapidata v1.0.1/go.mod h1:aJoV77sEeYCVg6TN5/Ab+GYsBwdlP9EQwY2+Vj2YXyA=
 github.com/earentir/tmdbapidata v0.0.0-20240111144135-603dfd264c05 h1:a9eh7x3BlwjFCADkqFW1H6u62/9rhl8Uo5wWQOYGsnU=
 github.com/earentir/tmdbapidata v0.0.0-20240111144135-603dfd264c05/go.mod h1:l1O7cJ76sGAfGerMXbbzsu59rBzplkgXHBX5GJNoZpU=
 github.com/earentir/tmdbapidata v1.0.0 h1:up+i0NpwfdQx4oKpyfdghykV5Jb9FxKEyCSZsGnnNwI=
@@ -56,6 +58,8 @@ github.com/klauspost/cpuid/v2 v2.2.6/go.mod h1:Lcz8mBdAVJIBVzewtcLocK12l3Y+JytZY
 github.com/knz/go-libedit v1.10.1/go.mod h1:MZTVkCWyz0oBc7JOWP3wNAzd002ZbM/5hgShxwh4x8M=
 github.com/leodido/go-urn v1.2.4 h1:XlAE/cm/ms7TE/VMVoduSpNBoyc2dOxHs5MZSwAN63Q=
 github.com/leodido/go-urn v1.2.4/go.mod h1:7ZrI8mTSeBSHl/UaRyKQW1qZeMgak41ANeCNaVckg+4=
+github.com/leodido/go-urn v1.3.0 h1:jX8FDLfW4ThVXctBNZ+3cIWnCSnrACDV73r76dy0aQQ=
+github.com/leodido/go-urn v1.3.0/go.mod h1:bvxc+MVxLKB4z00jd1z+Dvzr47oO32F/QSNjSBOlFxI=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
