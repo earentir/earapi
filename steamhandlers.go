@@ -137,9 +137,18 @@ func steamTopHandler(c *gin.Context) {
 	games, err := steamapidata.SteamUserAppsUsed(config.Apikeys.Steamapikey, userID)
 	if err != nil {
 		fmt.Println(err)
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"msg":     err.Error(),
+		})
 	} else {
 		response := steamapidata.SortApps(games, sortOn, topCountInt)
-		c.JSON(http.StatusOK, response)
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"msg":     "",
+			"data":    response})
 	}
 }
 
