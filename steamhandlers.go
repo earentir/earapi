@@ -90,6 +90,8 @@ func steamAppDataHandler(c *gin.Context) {
 			"msg":     "",
 			"data": gin.H{
 				"appid":            gameDetails.SteamAppid,
+				"storeurl":         "https://store.steampowered.com/app/" + appIDStr + "/",
+				"price":            gameDetails.PriceOverview,
 				"name":             gameDetails.Name,
 				"type":             gameDetails.Type,
 				"free":             gameDetails.IsFree,
@@ -100,6 +102,10 @@ func steamAppDataHandler(c *gin.Context) {
 				"releasedate":      gameDetails.ReleaseDate.Date,
 				"genres":           gameDetails.Genres,
 				"tags":             gameDetails.Categories,
+				"metacritic":       gameDetails.Metacritic,
+				"developers":       gameDetails.Developers,
+				"publishers":       gameDetails.Publishers,
+				"website":          gameDetails.Website,
 			},
 		})
 	}
