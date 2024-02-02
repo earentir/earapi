@@ -12,22 +12,19 @@ import (
 func steamUserIDHandler(c *gin.Context) {
 	usernameToLookup := c.DefaultQuery("username", "earentir")
 	fmt.Println("username provided", usernameToLookup)
-	steamID, statusCode, err := steamapidata.GetSteamID(config.Apikeys.Steamapikey, usernameToLookup)
+	steamID, _, err := steamapidata.GetSteamID(config.Apikeys.Steamapikey, usernameToLookup)
 	if err != nil {
-		// If there's an error, return it as a JSON response
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
-
-	if statusCode == 200 {
-		// If successful, return the Steam ID in a JSON response
 		c.JSON(http.StatusOK, gin.H{
-			"steamID": steamID,
+			"success": false,
+			"msg":     err.Error(),
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"msg":     "",
+			"data":    gin.H{"steamID": steamID},
 		})
 	}
-
 }
 
 func steamAppIDToName(c *gin.Context) {
@@ -79,7 +76,6 @@ func steamAppDataHandler(c *gin.Context) {
 	gameDetails, err := steamapidata.SteamAppDetails(appID)
 	if err != nil {
 		fmt.Println(err)
-
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"msg":     err.Error(),
@@ -117,10 +113,15 @@ func steamUserAppsUsedHandler(c *gin.Context) {
 	games, err := steamapidata.SteamUserAppsUsed(config.Apikeys.Steamapikey, userID)
 	if err != nil {
 		fmt.Println(err)
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"msg":     err.Error(),
+		})
 	} else {
 		c.JSON(http.StatusOK, gin.H{
-			"games": games,
-		})
+			"success": true,
+			"msg":     "",
+			"data":    games})
 	}
 }
 
@@ -137,7 +138,6 @@ func steamTopHandler(c *gin.Context) {
 	games, err := steamapidata.SteamUserAppsUsed(config.Apikeys.Steamapikey, userID)
 	if err != nil {
 		fmt.Println(err)
-
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"msg":     err.Error(),
@@ -158,9 +158,15 @@ func searchSteamAppHandler(c *gin.Context) {
 	foundApp, err := steamapidata.SteamSearchApp(app)
 	if err != nil {
 		fmt.Println(err)
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"msg":     err.Error(),
+		})
 	} else {
 		c.JSON(http.StatusOK, gin.H{
-			"app": foundApp,
+			"success": true,
+			"msg":     "",
+			"data":    gin.H{"app": foundApp},
 		})
 	}
 
