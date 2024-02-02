@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	apiversion = "v0.0.23"
+	apiversion = "v0.0.24"
 	configFile = "config/earapi.json"
 	config     earapiSettings
 )
@@ -29,26 +29,26 @@ func main() {
 	// Handler for the root path
 	r.GET("/", func(c *gin.Context) { rootHandler(c, r) })
 
-	steamGroup := r.Group("/steam")
+	steamv1Group := r.Group("/steam/vi/")
 	{
 		// steamGroup.GET("/", steamHandler)
-		steamGroup.GET("/top", steamTopHandler)
-		steamGroup.GET("/getuserid", steamUserIDHandler)
-		steamGroup.GET("/appsused", steamUserAppsUsedHandler)
-		steamGroup.GET("/appdata", steamAppDataHandler)
-		steamGroup.GET("/search", searchSteamAppHandler)
+		steamv1Group.GET("/top", steamTopHandler)
+		steamv1Group.GET("/getuserid", steamUserIDHandler)
+		steamv1Group.GET("/appsused", steamUserAppsUsedHandler)
+		steamv1Group.GET("/appdata", steamAppDataHandler)
+		steamv1Group.GET("/search", searchSteamAppHandler)
 	}
 
 	r.GET("/joke", jokeHandler)
 
-	tmdbGroup := r.Group("/tmdb")
+	tmdbGroup := r.Group("/tmdb/v1/")
 	{
 		// movieGroup.GET("/", movieHandler)
 		tmdbGroup.GET("/search", movieSearchHandler)
 		// movieGroup.GET("/actor", movieActorHandler)
 	}
 
-	netflixGroup := r.Group("/netflix")
+	netflixGroup := r.Group("/netflix/v1/")
 	{
 		netflixGroup.GET("/top", netflixTopHandler)
 	}
