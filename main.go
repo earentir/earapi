@@ -29,7 +29,7 @@ func main() {
 	// Handler for the root path
 	r.GET("/", func(c *gin.Context) { rootHandler(c, r) })
 
-	steamv1Group := r.Group("/steam/vi/")
+	steamv1Group := r.Group("/steam/v1/")
 	{
 		// steamGroup.GET("/", steamHandler)
 		steamv1Group.GET("/top", steamTopHandler)
