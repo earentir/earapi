@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	apiversion = "v0.0.24"
+	apiversion = "v0.0.26"
 	configFile = "config/earapi.json"
 	config     earapiSettings
 )
