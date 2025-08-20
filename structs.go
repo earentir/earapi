@@ -8,6 +8,7 @@ type steamTopResponse struct {
 
 type earapiSettings struct {
 	API struct {
+		IP   string `json:"ip"`
 		Port string `json:"port"`
 	} `json:"api"`
 	Apikeys struct {
