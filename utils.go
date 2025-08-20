@@ -19,14 +19,15 @@ func loadConfig() {
 	if os.IsNotExist(err) {
 		fmt.Println("Config file not found, creating default config file")
 		err = os.WriteFile(configFile, []byte(`{
-			"api": {
-				"port": "8080"
-			},
-			"apikeys": {
-				"steamapikey": "",
-				"tmdbapitoken": ""
-			}
-		}`), 0644)
+                       "api": {
+                               "ip": "127.0.0.1",
+                               "port": "8080"
+                       },
+                       "apikeys": {
+                               "steamapikey": "",
+                               "tmdbapitoken": ""
+                       }
+               }`), 0644)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(125)
