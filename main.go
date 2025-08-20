@@ -23,8 +23,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "earapi",
-	Short: "Start the earapi server",
+	Use:     "earapi",
+	Short:   "Start the earapi server",
+	Version: apiversion,
 	Run: func(cmd *cobra.Command, args []string) {
 		loadConfig()
 
