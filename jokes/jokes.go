@@ -1,11 +1,14 @@
-package main
+package jokesapi
 
 import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"os"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type bofhJokes struct {
@@ -44,4 +47,42 @@ func loadRandomJoke(filePath string) (interface{}, error) {
 	}
 
 	return "", fmt.Errorf("no jokes found or unrecognized joke format in the file")
+}
+
+// Handler provides an HTTP endpoint that returns a joke or excuse based on type
+func Handler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		jokeType := c.DefaultQuery("type", "geek")
+		switch jokeType {
+		case "geek":
+			jokes, err := loadRandomJoke("jokedata/geekjokes.json")
+			if err != nil {
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error": "cant load geekjokes.json",
+				})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"joke": jokes,
+			})
+
+		case "excuse", "bofh":
+			excuse, err := loadRandomJoke("jokedata/bofh.json")
+			if err != nil {
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error": "cant load bofh.json",
+				})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"excuse": excuse,
+			})
+		default:
+			c.JSON(http.StatusMethodNotAllowed, gin.H{
+				"error": "unknown type",
+			})
+		}
+	}
 }
