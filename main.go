@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	tmdbapi "earapi/tmdb"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +20,7 @@ var (
 	configFile string
 	ip         string
 	port       string
-	config     earapiSettings
+	config     tmdbapi.EarapiSettings
 )
 
 var rootCmd = &cobra.Command{
@@ -59,7 +60,7 @@ var rootCmd = &cobra.Command{
 
 		tmdbGroup := r.Group("/tmdb/v1/")
 		{
-			tmdbGroup.GET("/search", movieSearchHandler)
+			tmdbGroup.GET("/search", tmdbapi.SearchHandler(&config))
 		}
 
 		netflixGroup := r.Group("/netflix/v1/")
@@ -80,7 +81,7 @@ var rootCmd = &cobra.Command{
 			}
 		}()
 
-		signals := make(chan os.Signal)
+		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
 		<-signals
