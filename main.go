@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	jokesapi "earapi/jokes"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 )
@@ -55,7 +56,7 @@ var rootCmd = &cobra.Command{
 			steamv1Group.GET("/search", searchSteamAppHandler)
 		}
 
-		r.GET("/joke", jokeHandler)
+		r.GET("/joke", jokesapi.Handler())
 
 		tmdbGroup := r.Group("/tmdb/v1/")
 		{
