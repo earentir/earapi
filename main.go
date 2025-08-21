@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	netflixapi "earapi/netflix"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 )
@@ -64,7 +65,7 @@ var rootCmd = &cobra.Command{
 
 		netflixGroup := r.Group("/netflix/v1/")
 		{
-			netflixGroup.GET("/top", netflixTopHandler)
+			netflixGroup.GET("/top", netflixapi.TopHandler(&config))
 		}
 
 		r.GET("/version", versionHandler)
