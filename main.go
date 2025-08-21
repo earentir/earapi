@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	steamapi "earapi/steam"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 )
@@ -46,13 +47,14 @@ var rootCmd = &cobra.Command{
 		// Handler for the root path
 		r.GET("/", func(c *gin.Context) { rootHandler(c, r) })
 
+		steamConfig := steamapi.Config{APIKey: config.Apikeys.Steamapikey}
 		steamv1Group := r.Group("/steam/v1/")
 		{
-			steamv1Group.GET("/top", steamTopHandler)
-			steamv1Group.GET("/getuserid", steamUserIDHandler)
-			steamv1Group.GET("/appsused", steamUserAppsUsedHandler)
-			steamv1Group.GET("/appdata", steamAppDataHandler)
-			steamv1Group.GET("/search", searchSteamAppHandler)
+			steamv1Group.GET("/top", steamapi.SteamTopHandler(steamConfig))
+			steamv1Group.GET("/getuserid", steamapi.SteamUserIDHandler(steamConfig))
+			steamv1Group.GET("/appsused", steamapi.SteamUserAppsUsedHandler(steamConfig))
+			steamv1Group.GET("/appdata", steamapi.SteamAppDataHandler())
+			steamv1Group.GET("/search", steamapi.SearchSteamAppHandler())
 		}
 
 		r.GET("/joke", jokeHandler)
