@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/earentir/netflixtudumscrapper"
 	"github.com/gin-gonic/gin"
 )
 
@@ -39,7 +38,7 @@ func netflixTopHandler(c *gin.Context) {
 
 	fmt.Println(url)
 
-	movies, err := netflixtudumscrapper.ScrapeNetflix(url)
+    movies, err := ScrapeNetflix(url)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
