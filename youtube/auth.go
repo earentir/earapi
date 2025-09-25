@@ -20,7 +20,7 @@ func BuildAuthURL(clientID, clientSecret string) string {
         ClientID:     clientID,
         ClientSecret: clientSecret,
         Endpoint:     google.Endpoint,
-        Scopes:       []string{yt.YoutubeScope, yt.YoutubeForceSslScope},
+        Scopes:       []string{yt.YoutubeScope},
         RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
     }
     return cfg.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
@@ -63,7 +63,8 @@ type deviceTokenError struct {
 func StartDeviceFlow(ctx context.Context, clientID string) (DeviceStartResponse, error) {
     form := url.Values{}
     form.Set("client_id", clientID)
-    form.Set("scope", yt.YoutubeScope+" "+yt.YoutubeForceSslScope)
+    // Some TV/Device clients reject youtube.force-ssl in device flow; youtube scope is sufficient for playlist operations
+    form.Set("scope", yt.YoutubeScope)
 
     req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://oauth2.googleapis.com/device/code", io.NopCloser(stringsNewReader(form.Encode())))
     if err != nil {
@@ -107,7 +108,9 @@ func PollDeviceToken(ctx context.Context, clientID, clientSecret, deviceCode str
         case <-ticker.C:
             form := url.Values{}
             form.Set("client_id", clientID)
-            form.Set("client_secret", clientSecret)
+            if clientSecret != "" {
+                form.Set("client_secret", clientSecret)
+            }
             form.Set("device_code", deviceCode)
             form.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
 

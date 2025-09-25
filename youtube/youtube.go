@@ -59,7 +59,7 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
         ClientID:     cfg.ClientID,
         ClientSecret: cfg.ClientSecret,
         Endpoint:     google.Endpoint,
-        Scopes:       []string{yt.YoutubeScope, yt.YoutubeForceSslScope},
+        Scopes:       []string{yt.YoutubeScope},
         RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
     }
     token := &oauth2.Token{RefreshToken: cfg.RefreshToken}
