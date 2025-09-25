@@ -4,19 +4,18 @@ go 1.25.1
 
 //replace github.com/earentir/netflixtudumscrapper => ../netflixtudumscrapper
 
-// replace github.com/earentir/steamapidata => ../packages/steamapidata
+//replace github.com/earentir/steamapidata => ../packages/steamapidata
 
 //replace github.com/earentir/tmdbapidata => ../tmdbapidata
 
 require (
-	github.com/earentir/netflixtudumscrapper v1.0.1
+	github.com/earentir/netflixtudumscrapper v1.0.2
 	github.com/earentir/steamapidata v1.0.3
 	github.com/earentir/tmdbapidata v1.0.0
 	github.com/gin-gonic/gin v1.11.0
+	github.com/spf13/cobra v1.8.1
 	golang.org/x/oauth2 v0.31.0
 	google.golang.org/api v0.249.0
-	github.com/spf13/pflag v1.0.5
-	github.com/spf13/cobra v1.8.1
 )
 
 require (
@@ -44,6 +43,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -53,6 +53,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.54.0 // indirect
+	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
