@@ -8,7 +8,14 @@ import (
 )
 
 func movieSearchHandler(c *gin.Context) {
-	search := c.DefaultQuery("query", "Blade Runner")
+    // Accept both `q` and `query` params; only default if both are empty
+    search := c.Query("q")
+    if search == "" {
+        search = c.Query("query")
+    }
+    if search == "" {
+        search = "Blade Runner"
+    }
 	resulttype, resulttitle, mediadata := tmdbapidata.SearchTMDB(config.Apikeys.Tmdbapitoken, search)
 
 	c.JSON(http.StatusOK, gin.H{
