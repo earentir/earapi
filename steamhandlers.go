@@ -27,44 +27,6 @@ func steamUserIDHandler(c *gin.Context) {
 	}
 }
 
-func steamAppIDToName(c *gin.Context) {
-	appIDStr := c.DefaultQuery("appid", "1086940")
-
-	appID, err := strconv.Atoi(appIDStr)
-	if err != nil {
-		fmt.Println("appid needs to be an int")
-	}
-
-	gameDetails, err := steamapidata.SteamAppDetails(appID)
-	if err != nil {
-		fmt.Println(err)
-	} else {
-
-		c.JSON(http.StatusOK, gin.H{
-			"name": gameDetails.Name,
-		})
-	}
-}
-
-func steamAppNameToID(c *gin.Context) {
-	appName := c.DefaultQuery("name", "1086940")
-
-	appID, err := strconv.Atoi(appName)
-	if err != nil {
-		fmt.Println("appid needs to be an int")
-	}
-
-	gameDetails, err := steamapidata.SteamAppDetails(appID)
-	if err != nil {
-		fmt.Println(err)
-	} else {
-
-		c.JSON(http.StatusOK, gin.H{
-			"name": gameDetails.Name,
-		})
-	}
-}
-
 func steamAppDataHandler(c *gin.Context) {
 	appIDStr := c.DefaultQuery("appid", "1086940")
 
