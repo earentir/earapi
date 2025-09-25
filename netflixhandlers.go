@@ -40,6 +40,17 @@ func netflixTopHandler(c *gin.Context) {
 	fmt.Println(url)
 
     movies, err := netflixtudumscrapper.ScrapeNetflix(url)
+    if err == nil {
+        c.JSON(http.StatusOK, movies)
+        return
+    }
+    // fallback local parser if external lib fails or returns incomplete data
+    items, err2 := localScrapeNetflix(url)
+    if err2 != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, items)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
