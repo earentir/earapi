@@ -8,7 +8,7 @@ import (
 
 func loadConfig() {
 	//Create the api folders if they don't exist
-	err := checkAndCreateFolders("steamdata", "jokedata", "config", "moviedata")
+    err := checkAndCreateFolders("steamdata", "jokedata", "config", "moviedata", "youtubedata")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(125)
@@ -18,15 +18,22 @@ func loadConfig() {
 	_, err = os.Stat(configFile)
 	if os.IsNotExist(err) {
 		fmt.Println("Config file not found, creating default config file")
-		err = os.WriteFile(configFile, []byte(`{
-			"api": {
-				"port": "8080"
-			},
-			"apikeys": {
-				"steamapikey": "",
-				"tmdbapitoken": ""
-			}
-		}`), 0644)
+        err = os.WriteFile(configFile, []byte(`{
+            "api": {
+                "port": "8080"
+            },
+            "apikeys": {
+                "steamapikey": "",
+                "tmdbapitoken": ""
+            },
+            "youtube": {
+                "client_id": "",
+                "client_secret": "",
+                "refresh_token": "",
+                "default_channel_id": "",
+                "cache_minutes": 10
+            }
+        }`), 0644)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(125)
@@ -46,6 +53,18 @@ func loadConfig() {
 			os.Exit(125)
 		}
 	}
+}
+
+func saveConfig() {
+    // re-marshal current config to file
+    b, err := json.MarshalIndent(config, "\t\t\t\t\t\t\t\t", "\t")
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    if err := os.WriteFile(configFile, b, 0644); err != nil {
+        fmt.Println(err)
+    }
 }
 
 // checkAndCreateFolders accepts a variadic slice of strings, each representing a folder path
