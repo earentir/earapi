@@ -96,11 +96,11 @@ func slugifyForTudum(title string) string {
 	n = strings.ReplaceAll(n, "\"", "")
 
     // Collapse any non-alphanumeric (except spaces and hyphens)
-    reNonAlnum := regexp.MustCompile("[^a-z0-9\\-\\s]")
+    reNonAlnum := regexp.MustCompile(`[^a-z0-9-\s]`)
     n = reNonAlnum.ReplaceAllString(n, " ")
 
     // Collapse whitespace to single hyphens
-    reSpaces := regexp.MustCompile("[\\s\\-]+")
+    reSpaces := regexp.MustCompile(`[\s-]+`)
     slug := reSpaces.ReplaceAllString(n, "-")
 
 	// Trim residual hyphens
