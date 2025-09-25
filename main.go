@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/cobra"
 
 	ytpackage "earapi/youtube"
 )
@@ -27,62 +27,101 @@ func main() {
 
     loadConfig()
 
-    // CLI helper flags for headless OAuth
-    authURL := flag.Bool("youtube-auth-url", false, "print YouTube OAuth URL and exit")
-    authCode := flag.String("youtube-auth-code", "", "exchange OAuth code for refresh token")
-    flag.Parse()
+    var authURL bool
+    var authCode string
+    var authDevice bool
 
-    if *authURL {
-        fmt.Println(ytpackage.BuildAuthURL(config.Youtube.ClientID, config.Youtube.ClientSecret))
-        return
+    cmd := &cobra.Command{
+        Use:   "earapi",
+        Short: "Ear API server",
+        RunE: func(cmd *cobra.Command, args []string) error {
+            if authURL {
+                fmt.Println(ytpackage.BuildAuthURL(config.Youtube.ClientID, config.Youtube.ClientSecret))
+                return nil
+            }
+            if authCode != "" {
+                rt, _, err := ytpackage.ExchangeCode(context.Background(), config.Youtube.ClientID, config.Youtube.ClientSecret, authCode)
+                if err != nil {
+                    fmt.Println("exchange error:", err)
+                    return nil
+                }
+                if rt != "" {
+                    config.Youtube.RefreshToken = rt
+                    saveConfig()
+                    fmt.Println("Saved refresh token to config.")
+                } else {
+                    fmt.Println("No refresh token received; ensure AccessTypeOffline and ApprovalForce.")
+                }
+                return nil
+            }
+
+            if authDevice {
+                ctx := context.Background()
+                start, err := ytpackage.StartDeviceFlow(ctx, config.Youtube.ClientID)
+                if err != nil {
+                    fmt.Println("device flow start error:", err)
+                    return nil
+                }
+                fmt.Printf("Visit: %s\nEnter code: %s\n", start.VerificationURL, start.UserCode)
+                rt, _, err := ytpackage.PollDeviceToken(ctx, config.Youtube.ClientID, config.Youtube.ClientSecret, start.DeviceCode, start.Interval)
+                if err != nil {
+                    fmt.Println("device flow poll error:", err)
+                    return nil
+                }
+                if rt != "" {
+                    config.Youtube.RefreshToken = rt
+                    saveConfig()
+                    fmt.Println("Saved refresh token to config.")
+                }
+                return nil
+            }
+
+            runAPIServer()
+            return nil
+        },
     }
-    if *authCode != "" {
-        rt, _, err := ytpackage.ExchangeCode(context.Background(), config.Youtube.ClientID, config.Youtube.ClientSecret, *authCode)
-        if err != nil {
-            fmt.Println("exchange error:", err)
-            return
-        }
-        if rt != "" {
-            config.Youtube.RefreshToken = rt
-            saveConfig()
-            fmt.Println("Saved refresh token to config.")
-        } else {
-            fmt.Println("No refresh token received; ensure AccessTypeOffline and ApprovalForce.")
-        }
-        return
+
+    cmd.Flags().BoolVar(&authURL, "youtube-auth-url", false, "print YouTube OAuth URL and exit")
+    cmd.Flags().StringVar(&authCode, "youtube-auth-code", "", "exchange OAuth code for refresh token")
+    cmd.Flags().BoolVar(&authDevice, "youtube-auth-device", false, "start OAuth device flow for headless auth")
+
+    if err := cmd.Execute(); err != nil {
+        fmt.Println(err)
+    }
+}
+
+func runAPIServer() {
+    //setup gin to build the API
+    r := gin.Default()
+
+    // Handler for the root path
+    r.GET("/", func(c *gin.Context) { rootHandler(c, r) })
+
+    steamv1Group := r.Group("/steam/v1/")
+    {
+        // steamGroup.GET("/", steamHandler)
+        steamv1Group.GET("/top", steamTopHandler)
+        steamv1Group.GET("/getuserid", steamUserIDHandler)
+        steamv1Group.GET("/appsused", steamUserAppsUsedHandler)
+        steamv1Group.GET("/appdata", steamAppDataHandler)
+        steamv1Group.GET("/search", searchSteamAppHandler)
     }
 
-	//setup gin to build the API
-	r := gin.Default()
+    r.GET("/joke", jokeHandler)
 
-	// Handler for the root path
-	r.GET("/", func(c *gin.Context) { rootHandler(c, r) })
+    tmdbGroup := r.Group("/tmdb/v1/")
+    {
+        // movieGroup.GET("/", movieHandler)
+        tmdbGroup.GET("/search", movieSearchHandler)
+        // movieGroup.GET("/actor", movieActorHandler)
+    }
 
-	steamv1Group := r.Group("/steam/v1/")
-	{
-		// steamGroup.GET("/", steamHandler)
-		steamv1Group.GET("/top", steamTopHandler)
-		steamv1Group.GET("/getuserid", steamUserIDHandler)
-		steamv1Group.GET("/appsused", steamUserAppsUsedHandler)
-		steamv1Group.GET("/appdata", steamAppDataHandler)
-		steamv1Group.GET("/search", searchSteamAppHandler)
-	}
+    netflixGroup := r.Group("/netflix/v1/")
+    {
+        netflixGroup.GET("/top", netflixTopHandler)
+    }
 
-	r.GET("/joke", jokeHandler)
-
-	tmdbGroup := r.Group("/tmdb/v1/")
-	{
-		// movieGroup.GET("/", movieHandler)
-		tmdbGroup.GET("/search", movieSearchHandler)
-		// movieGroup.GET("/actor", movieActorHandler)
-	}
-
-	netflixGroup := r.Group("/netflix/v1/")
-	{
-		netflixGroup.GET("/top", netflixTopHandler)
-	}
-
-	r.GET("/version", versionHandler)
+    r.GET("/version", versionHandler)
 
     // youtube routes
     {
@@ -117,34 +156,32 @@ func main() {
         }
     }
 
-	// r.Run(fmt.Sprintf("%s%s", ":", config.API.Port))
+    httpserver :=
+        &http.Server{
+            Addr:    fmt.Sprintf("%s%s", ":", config.API.Port),
+            Handler: r,
+        }
 
-	httpserver :=
-		&http.Server{
-			Addr:    fmt.Sprintf("%s%s", ":", config.API.Port),
-			Handler: r,
-		}
+    go func() {
+        if err := httpserver.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            fmt.Println(err)
+        }
 
-	go func() {
-		if err := httpserver.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Println(err)
-		}
-
-	}()
+    }()
 
     //setup channels for capturing the termination signal from the OS
     signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+    signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	<-signals
-	fmt.Println("Shutting down the API")
+    <-signals
+    fmt.Println("Shutting down the API")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
 
-	if err := httpserver.Shutdown(ctx); err != nil {
-		fmt.Println(err)
-	}
+    if err := httpserver.Shutdown(ctx); err != nil {
+        fmt.Println(err)
+    }
 }
 
 func versionHandler(c *gin.Context) {
