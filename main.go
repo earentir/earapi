@@ -18,7 +18,6 @@ import (
 )
 
 var (
-	apiversion = "v0.0.28"
 	configFile = "config/earapi.json"
 	config     earapiSettings
 	appVersion = "v0.0.28"
@@ -199,7 +198,7 @@ func runAPIServer() {
 
 func versionHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"version": apiversion,
+		"version": appVersion,
 	})
 }
 
