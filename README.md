@@ -1,6 +1,6 @@
 # EarAPI
 
-A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, and tile layout calculations.
+A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, tile layout calculations.
 
 ## Run the server
 
@@ -424,8 +424,20 @@ Optional query params (same meaning as the CLI flags):
 | `minsplit` / `maxsplit` | Filter layouts by min/max rows or columns |
 | `meter` / `inches` | Convert layout dimensions (`true`/`1`) |
 | `graph` | Include ASCII grid per layout (`true`/`1`) |
+| `price` | Price amount (optional). With `per`, enables cost fields |
+| `per` | How many tiles that `price` covers (default `1` = per tile) |
 
-Example response:
+Pricing examples:
+
+```bash
+# 16 per tile
+curl -sS "https://api.earentir.dev/tilecalc/v1/arrange?size=15x40&count=32&price=16"
+
+# 16 per pack of 6
+curl -sS "https://api.earentir.dev/tilecalc/v1/arrange?size=15x40&count=32&price=16&per=6"
+```
+
+Example response (with pricing):
 ```json
 {
   "success": true,
@@ -438,7 +450,17 @@ Example response:
     "layouts": [
       { "rows": 1, "cols": 32, "width": 480, "height": 40, "unit": "cm" },
       { "rows": 2, "cols": 16, "width": 240, "height": 80, "unit": "cm" }
-    ]
+    ],
+    "pricing": {
+      "price": 16,
+      "per": 6,
+      "price_per_tile": 2.6666666666666665,
+      "cost_per_m2": 44.44444444444444,
+      "tiles": 32,
+      "packs_needed": 6,
+      "total_cost": 96,
+      "tile_area_m2": 0.06
+    }
   }
 }
 ```
@@ -455,6 +477,7 @@ curl -sS "https://api.earentir.dev/tilecalc/v1/coverage?size=15x40&space=300x130
 | `space` | Space size `WxH` in cm (required) |
 | `singledimensionpattern` | Only one orientation (default: both when tile is not square) |
 | `graph` | Include ASCII coverage grid |
+| `price` / `per` | Same pricing as arrange; applied per pattern using total tiles needed |
 
 Example response:
 ```json
