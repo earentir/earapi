@@ -20,7 +20,7 @@ import (
 var (
 	configFile = "config/earapi.json"
 	config     earapiSettings
-	appVersion = "v0.0.28"
+	appVersion = "v0.0.29"
 )
 
 func main() {
