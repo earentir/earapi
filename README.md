@@ -1,6 +1,6 @@
 # EarAPI
 
-A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, and YouTube playlist utilities.
+A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, and tile layout calculations.
 
 ## Run the server
 
@@ -400,6 +400,87 @@ Example response:
   },
   "msg": "",
   "success": true
+}
+```
+
+## Tilecalc Endpoints
+
+Base: `/tilecalc/v1`
+
+Port of the `tilecalc` CLI: arrange a fixed tile count into grids, or compute coverage (including cuts) for a space.
+
+### Arrange layouts
+
+```bash
+curl -sS "https://api.earentir.dev/tilecalc/v1/arrange?size=15x40&count=32" | jq '.'
+```
+
+Optional query params (same meaning as the CLI flags):
+
+| Param | Description |
+| --- | --- |
+| `size` | Tile size `WxH` in cm (e.g. `15x40`). Or use `width` / `height`. |
+| `count` | Number of tiles (required) |
+| `minsplit` / `maxsplit` | Filter layouts by min/max rows or columns |
+| `meter` / `inches` | Convert layout dimensions (`true`/`1`) |
+| `graph` | Include ASCII grid per layout (`true`/`1`) |
+
+Example response:
+```json
+{
+  "success": true,
+  "msg": "",
+  "data": {
+    "tile_width_cm": 15,
+    "tile_height_cm": 40,
+    "count": 32,
+    "total_area_m2": 1.92,
+    "layouts": [
+      { "rows": 1, "cols": 32, "width": 480, "height": 40, "unit": "cm" },
+      { "rows": 2, "cols": 16, "width": 240, "height": 80, "unit": "cm" }
+    ]
+  }
+}
+```
+
+### Coverage for a space
+
+```bash
+curl -sS "https://api.earentir.dev/tilecalc/v1/coverage?size=15x40&space=300x130" | jq '.'
+```
+
+| Param | Description |
+| --- | --- |
+| `size` | Tile size `WxH` in cm |
+| `space` | Space size `WxH` in cm (required) |
+| `singledimensionpattern` | Only one orientation (default: both when tile is not square) |
+| `graph` | Include ASCII coverage grid |
+
+Example response:
+```json
+{
+  "success": true,
+  "msg": "",
+  "data": {
+    "space_width_cm": 300,
+    "space_height_cm": 130,
+    "patterns": [
+      {
+        "tile_width_cm": 15,
+        "tile_height_cm": 40,
+        "total_tiles": 80,
+        "full_tiles": 60,
+        "cuts": [{ "size": "15x10", "count": 20 }]
+      },
+      {
+        "tile_width_cm": 40,
+        "tile_height_cm": 15,
+        "total_tiles": 72,
+        "full_tiles": 56,
+        "cuts": [{ "size": "20x15", "count": 8 }, { "size": "40x10", "count": 7 }, { "size": "20x10", "count": 1 }]
+      }
+    ]
+  }
 }
 ```
 

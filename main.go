@@ -122,6 +122,12 @@ func runAPIServer() {
 		netflixGroup.GET("/top", netflixTopHandler)
 	}
 
+	tilecalcGroup := r.Group("/tilecalc/v1/")
+	{
+		tilecalcGroup.GET("/arrange", tilecalcArrangeHandler)
+		tilecalcGroup.GET("/coverage", tilecalcCoverageHandler)
+	}
+
 	r.GET("/version", versionHandler)
 
 	// youtube routes
