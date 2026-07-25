@@ -1,6 +1,6 @@
 # EarAPI
 
-A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, tile layout calculations.
+A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, tile layout calculations, and Discord Magic Time timestamps.
 
 ## Run the server
 
@@ -502,6 +502,70 @@ Example response:
         "full_tiles": 56,
         "cuts": [{ "size": "20x15", "count": 8 }, { "size": "40x10", "count": 7 }, { "size": "20x10", "count": 1 }]
       }
+    ]
+  }
+}
+```
+
+## Discord Magic Time (DMT) Endpoints
+
+Base: `/dmt/v1`
+
+Converts a date/time into Discord timestamp tags (`<t:unix:style>`), matching the Discord Magic Time page.
+
+### List formats
+
+```bash
+curl -sS "https://api.earentir.dev/dmt/v1/formats" | jq '.'
+```
+
+Returns the seven Discord styles: `f`, `F`, `d`, `D`, `t`, `T`, `R`.
+
+### Build a timestamp
+
+```bash
+# From local-style components + offset (Athens = +03:00)
+curl -sS "https://api.earentir.dev/dmt/v1/timestamp?year=2026&month=7&day=25&hour=21&minute=45&second=0&offset=%2B03:00&format=f" | jq '.'
+
+# From ISO datetime
+curl -sS "https://api.earentir.dev/dmt/v1/timestamp?datetime=2026-07-25T21:45:00&offset=%2B03:00&format=R"
+
+# From unix epoch
+curl -sS "https://api.earentir.dev/dmt/v1/timestamp?unix=1785003900&format=F"
+
+# Round up to next 5-minute mark (DMT "Complete" button)
+curl -sS "https://api.earentir.dev/dmt/v1/timestamp?year=2026&month=7&day=25&hour=21&minute=47&offset=%2B03:00&complete=true"
+
+# No time args → now (UTC)
+curl -sS "https://api.earentir.dev/dmt/v1/timestamp"
+```
+
+| Param | Description |
+| --- | --- |
+| `year` / `month` / `day` / `hour` / `minute` / `second` | Component form (same as the DMT page selectors) |
+| `datetime` | ISO/RFC3339 or `YYYY-MM-DDTHH:MM:SS` |
+| `unix` / `epoch` | Seconds since Unix epoch |
+| `offset` | Zone for zoneless datetime/components: `+03:00`, `-0500`, `Z`, or minutes east of UTC (default UTC) |
+| `format` / `style` | Discord code `f`/`F`/`d`/`D`/`t`/`T`/`R`, or index `0`–`6` (default `f`) |
+| `complete` | `true`/`1` — round up to the next 5-minute boundary |
+
+Response includes `tag` (selected style), `unix`, and `timestamps` (all seven styles).
+
+Example:
+```json
+{
+  "success": true,
+  "msg": "",
+  "data": {
+    "unix": 1785003900,
+    "iso8601": "2026-07-25T21:45:00+03:00",
+    "utc": "2026-07-25 18:45:00 UTC",
+    "local": "2026-07-25 21:45:00 +03:00",
+    "completed": false,
+    "tag": "<t:1785003900:f>",
+    "style": "f",
+    "timestamps": [
+      { "style": "f", "name": "Short Date/Time", "tag": "<t:1785003900:f>", "example": "January 15, 2026 3:45 PM" }
     ]
   }
 }

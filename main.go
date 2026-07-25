@@ -128,6 +128,12 @@ func runAPIServer() {
 		tilecalcGroup.GET("/coverage", tilecalcCoverageHandler)
 	}
 
+	dmtGroup := r.Group("/dmt/v1/")
+	{
+		dmtGroup.GET("/timestamp", dmtTimestampHandler)
+		dmtGroup.GET("/formats", dmtFormatsHandler)
+	}
+
 	r.GET("/version", versionHandler)
 
 	// youtube routes
