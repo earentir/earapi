@@ -98,6 +98,7 @@ func parseTilecalcOptions(c *gin.Context) (tilecalc.Options, error) {
 		ToInches:               queryBool(c, "inches"),
 		Graph:                  queryBool(c, "graph"),
 		SingleDimensionPattern: queryBool(c, "singledimensionpattern"),
+		Per:                    1,
 	}
 
 	if v := c.Query("minsplit"); v != "" {
@@ -116,6 +117,27 @@ func parseTilecalcOptions(c *gin.Context) (tilecalc.Options, error) {
 		opts.MaxSplit = n
 		opts.MaxSplitSet = true
 	}
+
+	if v := c.Query("price"); v != "" {
+		price, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return opts, fmt.Errorf("invalid price: %v", err)
+		}
+		opts.Price = price
+		opts.HasPrice = true
+	}
+	if v := c.Query("per"); v != "" {
+		per, err := strconv.Atoi(v)
+		if err != nil {
+			return opts, fmt.Errorf("invalid per: %v", err)
+		}
+		opts.Per = per
+		// price is required when per is set alone
+		if !opts.HasPrice {
+			return opts, fmt.Errorf("price is required when per is set")
+		}
+	}
+
 	return opts, nil
 }
 

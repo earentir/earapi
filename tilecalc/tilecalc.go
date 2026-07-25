@@ -3,6 +3,7 @@ package tilecalc
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -17,13 +18,26 @@ type Layout struct {
 	Graph  string  `json:"graph,omitempty"`
 }
 
+// PricingResult is derived cost info when a price is provided.
+type PricingResult struct {
+	Price        float64 `json:"price"`
+	Per          int     `json:"per"`
+	PricePerTile float64 `json:"price_per_tile"`
+	CostPerM2    float64 `json:"cost_per_m2"`
+	Tiles        int     `json:"tiles"`
+	PacksNeeded  int     `json:"packs_needed"`
+	TotalCost    float64 `json:"total_cost"`
+	TileAreaM2   float64 `json:"tile_area_m2"`
+}
+
 // ArrangeResult is the response for arrangement mode.
 type ArrangeResult struct {
-	TileWidth  int      `json:"tile_width_cm"`
-	TileHeight int      `json:"tile_height_cm"`
-	Count      int      `json:"count"`
-	TotalAreaM float64  `json:"total_area_m2"`
-	Layouts    []Layout `json:"layouts"`
+	TileWidth  int            `json:"tile_width_cm"`
+	TileHeight int            `json:"tile_height_cm"`
+	Count      int            `json:"count"`
+	TotalAreaM float64        `json:"total_area_m2"`
+	Layouts    []Layout       `json:"layouts"`
+	Pricing    *PricingResult `json:"pricing,omitempty"`
 }
 
 // CutSpec counts cut pieces of a given size.
@@ -34,22 +48,24 @@ type CutSpec struct {
 
 // CoveragePattern is one orientation’s coverage breakdown.
 type CoveragePattern struct {
-	TileWidth  int       `json:"tile_width_cm"`
-	TileHeight int       `json:"tile_height_cm"`
-	TotalTiles int       `json:"total_tiles"`
-	FullTiles  int       `json:"full_tiles"`
-	Cuts       []CutSpec `json:"cuts,omitempty"`
-	Graph      string    `json:"graph,omitempty"`
+	TileWidth  int            `json:"tile_width_cm"`
+	TileHeight int            `json:"tile_height_cm"`
+	TotalTiles int            `json:"total_tiles"`
+	FullTiles  int            `json:"full_tiles"`
+	Cuts       []CutSpec      `json:"cuts,omitempty"`
+	Graph      string         `json:"graph,omitempty"`
+	Pricing    *PricingResult `json:"pricing,omitempty"`
 }
 
 // CoverageResult is the response for coverage mode.
 type CoverageResult struct {
 	SpaceWidth  int               `json:"space_width_cm"`
 	SpaceHeight int               `json:"space_height_cm"`
+	SpaceAreaM2 float64           `json:"space_area_m2"`
 	Patterns    []CoveragePattern `json:"patterns"`
 }
 
-// Options controls unit conversion, split filters, and graphs.
+// Options controls unit conversion, split filters, graphs, and pricing.
 type Options struct {
 	MinSplit               int
 	MaxSplit               int
@@ -59,6 +75,11 @@ type Options struct {
 	ToInches               bool
 	Graph                  bool
 	SingleDimensionPattern bool
+	// Price is the amount charged for Per tiles. Per defaults to 1 (per tile).
+	// Examples: Price=16, Per=1 → 16/tile; Price=16, Per=6 → 16 per pack of 6.
+	Price    float64
+	Per      int
+	HasPrice bool
 }
 
 // ParseDimensions turns "123x456" into two ints.
@@ -101,6 +122,9 @@ func Arrange(width, height, count int, opts Options) (*ArrangeResult, error) {
 	if count <= 0 {
 		return nil, fmt.Errorf("must specify a positive count")
 	}
+	if err := validatePricing(opts); err != nil {
+		return nil, err
+	}
 
 	combos := calculateCombos(count, opts.MinSplit, opts.MaxSplit, opts.MinSplitSet, opts.MaxSplitSet)
 	factor, unit := unitConversion(opts)
@@ -120,13 +144,17 @@ func Arrange(width, height, count int, opts Options) (*ArrangeResult, error) {
 		layouts = append(layouts, l)
 	}
 
-	return &ArrangeResult{
+	result := &ArrangeResult{
 		TileWidth:  width,
 		TileHeight: height,
 		Count:      count,
 		TotalAreaM: float64(count*width*height) / 10000.0,
 		Layouts:    layouts,
-	}, nil
+	}
+	if opts.HasPrice {
+		result.Pricing = calculatePricing(width, height, count, opts)
+	}
+	return result, nil
 }
 
 // Coverage computes how many tiles (and cuts) fill a space.
@@ -138,17 +166,62 @@ func Coverage(tileW, tileH, spaceW, spaceH int, opts Options) (*CoverageResult, 
 	if spaceW <= 0 || spaceH <= 0 {
 		return nil, fmt.Errorf("must specify positive space dimensions")
 	}
+	if err := validatePricing(opts); err != nil {
+		return nil, err
+	}
 
-	patterns := []CoveragePattern{calculateCoverage(tileW, tileH, spaceW, spaceH, opts.Graph)}
+	patterns := []CoveragePattern{calculateCoverage(tileW, tileH, spaceW, spaceH, opts)}
 	if !opts.SingleDimensionPattern && tileW != tileH {
-		patterns = append(patterns, calculateCoverage(tileH, tileW, spaceW, spaceH, opts.Graph))
+		patterns = append(patterns, calculateCoverage(tileH, tileW, spaceW, spaceH, opts))
 	}
 
 	return &CoverageResult{
 		SpaceWidth:  spaceW,
 		SpaceHeight: spaceH,
+		SpaceAreaM2: float64(spaceW*spaceH) / 10000.0,
 		Patterns:    patterns,
 	}, nil
+}
+
+func validatePricing(opts Options) error {
+	if !opts.HasPrice {
+		return nil
+	}
+	if opts.Price < 0 {
+		return fmt.Errorf("price must be non-negative")
+	}
+	per := opts.Per
+	if per == 0 {
+		per = 1
+	}
+	if per < 1 {
+		return fmt.Errorf("per must be a positive integer (tiles covered by price)")
+	}
+	return nil
+}
+
+func calculatePricing(tileW, tileH, tiles int, opts Options) *PricingResult {
+	per := opts.Per
+	if per < 1 {
+		per = 1
+	}
+	tileArea := float64(tileW*tileH) / 10000.0
+	pricePerTile := opts.Price / float64(per)
+	costPerM2 := 0.0
+	if tileArea > 0 {
+		costPerM2 = pricePerTile / tileArea
+	}
+	packs := int(math.Ceil(float64(tiles) / float64(per)))
+	return &PricingResult{
+		Price:        opts.Price,
+		Per:          per,
+		PricePerTile: pricePerTile,
+		CostPerM2:    costPerM2,
+		Tiles:        tiles,
+		PacksNeeded:  packs,
+		TotalCost:    float64(packs) * opts.Price,
+		TileAreaM2:   tileArea,
+	}
 }
 
 type layout struct{ Rows, Cols int }
@@ -194,7 +267,7 @@ func asciiGrid(rows, cols int) string {
 	return b.String()
 }
 
-func calculateCoverage(tileW, tileH, spaceW, spaceH int, graph bool) CoveragePattern {
+func calculateCoverage(tileW, tileH, spaceW, spaceH int, opts Options) CoveragePattern {
 	fullCols := spaceW / tileW
 	remW := spaceW % tileW
 	fullRows := spaceH / tileH
@@ -236,15 +309,19 @@ func calculateCoverage(tileW, tileH, spaceW, spaceH int, graph bool) CoveragePat
 		cuts = append(cuts, CutSpec{Size: size, Count: cnt})
 	}
 
+	totalTiles := rows * cols
 	p := CoveragePattern{
 		TileWidth:  tileW,
 		TileHeight: tileH,
-		TotalTiles: rows * cols,
+		TotalTiles: totalTiles,
 		FullTiles:  fullCount,
 		Cuts:       cuts,
 	}
-	if graph {
+	if opts.Graph {
 		p.Graph = asciiGrid(rows, cols)
+	}
+	if opts.HasPrice {
+		p.Pricing = calculatePricing(tileW, tileH, totalTiles, opts)
 	}
 	return p
 }
