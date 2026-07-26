@@ -369,11 +369,7 @@ function renderEndpoint(ep) {
   );
   card.append(head, body);
 
-  // Open first endpoint of each group by default feels noisy; open tilecalc/dmt & core version
-  if (["version", "tilecalc-arrange", "dmt-timestamp"].includes(ep.id)) {
-    card.classList.add("open");
-  }
-
+  // Keep cards collapsed by default — click a row to open the try panel
   return card;
 }
 
