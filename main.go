@@ -232,6 +232,8 @@ func versionHandler(c *gin.Context) {
 func corsMiddleware() gin.HandlerFunc {
 	allowed := map[string]bool{
 		"https://earentir.github.io": true,
+		"https://earentir.dev":       true,
+		"https://www.earentir.dev":   true,
 		"http://127.0.0.1:8766":      true,
 		"http://localhost:8766":      true,
 		"http://127.0.0.1:8080":      true,
