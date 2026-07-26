@@ -94,6 +94,7 @@ func main() {
 func runAPIServer() {
 	// setup gin to build the API
 	r := gin.Default()
+	r.Use(corsMiddleware())
 
 	// Handler for the root path
 	r.GET("/", func(c *gin.Context) { rootHandler(c, r) })
@@ -225,6 +226,32 @@ func versionHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"version": appVersion,
 	})
+}
+
+// corsMiddleware allows the tools UI (GitHub Pages + local proxy) to call the API.
+func corsMiddleware() gin.HandlerFunc {
+	allowed := map[string]bool{
+		"https://earentir.github.io": true,
+		"http://127.0.0.1:8766":      true,
+		"http://localhost:8766":      true,
+		"http://127.0.0.1:8080":      true,
+		"http://localhost:8080":      true,
+	}
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if allowed[origin] {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Accept")
+			c.Header("Access-Control-Max-Age", "86400")
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
 }
 
 func rootHandler(c *gin.Context, r *gin.Engine) {
