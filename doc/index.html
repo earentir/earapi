@@ -7,29 +7,31 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand-block">
+        <span class="brand">earapi</span>
+        <span class="brand-sub">API docs</span>
+      </div>
+      <label class="base-field">
+        <span>Base URL</span>
+        <input id="baseUrl" type="text" value="https://api.earentir.dev" spellcheck="false" autocomplete="off">
+      </label>
+    </div>
+  </header>
+
   <div class="page">
     <aside class="sidebar">
-      <a class="brand" href="#top">earapi</a>
-      <p class="brand-sub">HTTP API reference</p>
       <nav class="toc" id="toc"></nav>
     </aside>
-
     <main class="content" id="top">
-      <header class="hero">
-        <h1>API documentation</h1>
-        <p>Try endpoints against a live base URL. Responses render inline under each call.</p>
-        <label class="base-field">
-          <span>Base URL</span>
-          <input id="baseUrl" type="text" value="https://api.earentir.dev" spellcheck="false" autocomplete="off">
-        </label>
-      </header>
-
+      <p class="intro">Pick an endpoint, edit params, hit <strong>Run</strong>. Response shows under the call.</p>
       <div id="endpoints"></div>
     </main>
   </div>
-  <script src="script.js"></script>
+  <script src="script.js?v=2"></script>
 </body>
 </html>
