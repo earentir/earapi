@@ -8,7 +8,7 @@ import (
 
 func loadConfig() {
 	//Create the api folders if they don't exist
-    err := checkAndCreateFolders("steamdata", "jokedata", "config", "moviedata", "youtubedata")
+	err := checkAndCreateFolders("steamdata", "jokedata", "config", "moviedata", "youtubedata", "watchlistdata")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(125)
@@ -18,7 +18,7 @@ func loadConfig() {
 	_, err = os.Stat(configFile)
 	if os.IsNotExist(err) {
 		fmt.Println("Config file not found, creating default config file")
-        err = os.WriteFile(configFile, []byte(`{
+		err = os.WriteFile(configFile, []byte(`{
             "api": {
                 "port": "8080"
             },
@@ -32,6 +32,11 @@ func loadConfig() {
                 "refresh_token": "",
                 "default_channel_id": "",
                 "cache_minutes": 10
+            },
+            "watchlist": {
+                "cache_minutes": 360,
+                "browser_path": "",
+                "browser_headful": false
             }
         }`), 0644)
 		if err != nil {

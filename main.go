@@ -14,13 +14,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 
+	wlpackage "earapi/watchlist"
 	ytpackage "earapi/youtube"
 )
 
 var (
 	configFile = "config/earapi.json"
 	config     earapiSettings
-	appVersion = "v0.0.29"
+	appVersion = "v0.0.30"
 )
 
 func main() {
@@ -165,6 +166,32 @@ func runAPIServer() {
 			fmt.Println("YouTube init error:", err)
 		} else {
 			ytpackage.RegisterRoutes(r, ytsvc)
+		}
+	}
+
+	// IMDb watchlist + Jellyfin playlist routes
+	{
+		cacheMinutes := config.Watchlist.CacheMinutes
+		if cacheMinutes == 0 {
+			cacheMinutes = 360 // 6h default when unset / old config
+		}
+		var cacheTTL time.Duration
+		if cacheMinutes < 0 {
+			cacheTTL = 0 // negative disables disk cache
+		} else {
+			cacheTTL = time.Duration(cacheMinutes) * time.Minute
+		}
+		wlsvc := wlpackage.New(wlpackage.Config{
+			CacheDir:       "watchlistdata",
+			CacheTTL:       cacheTTL,
+			BrowserPath:    config.Watchlist.BrowserPath,
+			BrowserHeadful: config.Watchlist.BrowserHeadful,
+		})
+		wlpackage.RegisterRoutes(r, wlsvc)
+		if wlsvc.BrowserName != "" {
+			fmt.Println("Watchlist alias resolution via:", wlsvc.BrowserName)
+		} else {
+			fmt.Println("Watchlist: no browser found — p.* IMDb aliases need CSV import")
 		}
 	}
 
