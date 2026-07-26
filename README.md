@@ -1,6 +1,6 @@
 # EarAPI
 
-A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, tile layout calculations, and Discord Magic Time timestamps.
+A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, IMDb watchlist parsing, Jellyfin playlist sync, tile layout calculations, and Discord Magic Time timestamps.
 
 ## Run the server
 
@@ -571,6 +571,136 @@ Example:
 }
 ```
 
+## IMDb Watchlist Endpoints
+
+Base: `/imdb/v1`
+
+IMDb data is for limited, non-commercial, private use. Lists are fetched via IMDb's public GraphQL API. Anonymised `p.*` profile links need a Chromium-family browser on the server (or use CSV import).
+
+- Resolve a link or id
+
+```bash
+curl -sS -X POST https://api.earentir.dev/imdb/v1/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"https://www.imdb.com/user/ur12345678/watchlist/"}'
+```
+
+- Fetch a watchlist / list (async job; poll or SSE)
+
+```bash
+curl -sS -X POST https://api.earentir.dev/imdb/v1/fetch \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"ur12345678","owner":"Alice","refresh":false}'
+# → {"job_id":"...","source":{...}}
+curl -sS https://api.earentir.dev/jobs/v1/JOB_ID
+# or: curl -N https://api.earentir.dev/jobs/v1/JOB_ID/events
+```
+
+- Import an IMDb export CSV
+
+```bash
+curl -sS -X POST https://api.earentir.dev/imdb/v1/import-csv \
+  -F 'file=@watchlist.csv' -F 'owner=Alice' -F 'hydrate=true'
+```
+
+- Hydrate title metadata by ids
+
+```bash
+curl -sS -X POST https://api.earentir.dev/imdb/v1/titles/hydrate \
+  -H 'Content-Type: application/json' \
+  -d '{"ids":["tt0111161","tt0068646"]}'
+```
+
+## Watchlist storage
+
+Base: `/watchlist/v1`
+
+Fetched/imported lists are kept in process memory (plus optional disk cache under `watchlistdata/`).
+
+```bash
+curl -sS https://api.earentir.dev/watchlist/v1/WATCHLIST_ID
+curl -sS "https://api.earentir.dev/watchlist/v1/WATCHLIST_ID/export?format=json"
+curl -sS "https://api.earentir.dev/watchlist/v1/WATCHLIST_ID/export?format=csv" -o list.csv
+```
+
+## Compare Endpoints
+
+Base: `/compare/v1`
+
+Compare two or more lists by stored ids, or pass titles inline (stateless for third-party clients).
+
+```bash
+curl -sS -X POST https://api.earentir.dev/compare/v1 \
+  -H 'Content-Type: application/json' \
+  -d '{"watchlist_ids":["ID_A","ID_B"]}'
+
+curl -sS -X POST https://api.earentir.dev/compare/v1 \
+  -H 'Content-Type: application/json' \
+  -d '{"lists":[{"owner":"A","titles":[{"imdb_id":"tt0111161","title":"The Shawshank Redemption"}]},{"owner":"B","titles":[{"imdb_id":"tt0068646","title":"The Godfather"}]}]}'
+
+curl -sS https://api.earentir.dev/compare/v1/COMPARE_ID
+curl -sS "https://api.earentir.dev/compare/v1/COMPARE_ID/export?view=common&format=json"
+```
+
+Views: `common`, `partial`, `all`, `unique:<owner>`.
+
+## Jellyfin Endpoints
+
+Base: `/jellyfin/v1`
+
+Connect once (session on this API process), or pass `url` + `api_key` on each mutating call for one-shot use. The API key is never returned in responses.
+
+```bash
+# Session connect
+curl -sS -X POST https://api.earentir.dev/jellyfin/v1/connect \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"http://jellyfin.local:8096","api_key":"YOUR_KEY"}'
+
+curl -sS https://api.earentir.dev/jellyfin/v1/status
+curl -sS -X POST https://api.earentir.dev/jellyfin/v1/scan
+# → {"job_id":"..."} then poll /jobs/v1/...
+
+# Match a fetched watchlist (or inline titles) to the library
+curl -sS -X POST https://api.earentir.dev/jellyfin/v1/match \
+  -H 'Content-Type: application/json' \
+  -d '{"watchlist_id":"WATCHLIST_ID","movies_only":true}'
+
+# Dry-run playlist sync (confirm:false), then write (confirm:true)
+curl -sS -X POST https://api.earentir.dev/jellyfin/v1/sync \
+  -H 'Content-Type: application/json' \
+  -d '{"watchlist_id":"WATCHLIST_ID","playlist_name":"IMDb Watchlist","mode":"append","confirm":false}'
+
+curl -sS -X POST https://api.earentir.dev/jellyfin/v1/sync \
+  -H 'Content-Type: application/json' \
+  -d '{"watchlist_id":"WATCHLIST_ID","playlist_name":"IMDb Watchlist","mode":"append","confirm":true}'
+
+# Playlist helpers
+curl -sS "https://api.earentir.dev/jellyfin/v1/playlists"
+curl -sS "https://api.earentir.dev/jellyfin/v1/playlists?name=My%20Playlist"
+curl -sS "https://api.earentir.dev/jellyfin/v1/playlists/items?id=PLAYLIST_ITEM_ID"
+
+curl -sS -X POST https://api.earentir.dev/jellyfin/v1/disconnect
+```
+
+Sync modes: `append` (default), `replace`, `create`. Optional `item_ids` overrides the matched set (for UI review of fuzzy matches). Sources: `watchlist_id`, `compare_id`+`view`, or inline `titles`.
+
+Capabilities probe (for a future web UI):
+
+```bash
+curl -sS https://api.earentir.dev/watchlistsync/v1/capabilities
+```
+
+## Jobs
+
+Base: `/jobs/v1`
+
+Long IMDb fetches and Jellyfin library scans return a `job_id`.
+
+```bash
+curl -sS https://api.earentir.dev/jobs/v1/JOB_ID
+curl -N https://api.earentir.dev/jobs/v1/JOB_ID/events
+```
+
 ## Server configuration
 
 `config/earapi.json` controls runtime settings, e.g.:
@@ -588,10 +718,17 @@ Example:
     "refresh_token": "SAVED_REFRESH_TOKEN",
     "default_channel_id": "UCxxxxxxxxxxxxxxxx",
     "cache_minutes": 10
+  },
+  "watchlist": {
+    "cache_minutes": 360,
+    "browser_path": "",
+    "browser_headful": false
   }
 }
 ```
 
 - For YouTube, set `client_id`/`client_secret` for your OAuth client.
 - Use `--youtube-auth-device` to obtain and persist `refresh_token`.
+- `watchlist.cache_minutes`: IMDb list disk cache TTL (default 360). Set `-1` to disable.
+- `watchlist.browser_path` / `EARAPI_BROWSER`: optional Chrome/Chromium/Edge/Brave for `p.*` alias resolution.
 - Ensure required third-party APIs (YouTube Data API v3, Steam Web API, etc.) are enabled and keys configured.
