@@ -205,6 +205,78 @@ const GROUPS = [
       },
     ],
   },
+  {
+    id: "imdb",
+    title: "IMDb",
+    description:
+      "Watchlist parsing via GraphQL. Main writes are POST: <code>/imdb/v1/resolve</code>, <code>/fetch</code>, <code>/import-csv</code>, <code>/titles/hydrate</code>.",
+    endpoints: [
+      {
+        id: "wl-capabilities",
+        method: "GET",
+        path: "/watchlistsync/v1/capabilities",
+        summary: "Feature flags (alias support, groups)",
+        params: [],
+      },
+    ],
+  },
+  {
+    id: "watchlist",
+    title: "Watchlist",
+    description: "Retrieve or export a previously fetched / imported list (replace :id in the path).",
+    endpoints: [
+      {
+        id: "watchlist-get",
+        method: "GET",
+        path: "/watchlist/v1/REPLACE_ID",
+        summary: "Get stored watchlist JSON",
+        params: [],
+      },
+      {
+        id: "watchlist-export",
+        method: "GET",
+        path: "/watchlist/v1/REPLACE_ID/export",
+        summary: "Export JSON or CSV",
+        params: [{ name: "format", value: "json", hint: "json | csv" }],
+      },
+    ],
+  },
+  {
+    id: "jellyfin",
+    title: "Jellyfin",
+    description:
+      "Playlist management. Connect/match/sync are POST (see README). Status and playlist listing are GET.",
+    endpoints: [
+      {
+        id: "jf-status",
+        method: "GET",
+        path: "/jellyfin/v1/status",
+        summary: "Connection + library scan status",
+        params: [],
+      },
+      {
+        id: "jf-playlists",
+        method: "GET",
+        path: "/jellyfin/v1/playlists",
+        summary: "List playlists (needs prior connect)",
+        params: [{ name: "name", value: "", hint: "optional exact name" }],
+      },
+    ],
+  },
+  {
+    id: "jobs",
+    title: "Jobs",
+    description: "Progress for long IMDb fetches and Jellyfin scans (replace JOB_ID).",
+    endpoints: [
+      {
+        id: "job-status",
+        method: "GET",
+        path: "/jobs/v1/JOB_ID",
+        summary: "Job snapshot",
+        params: [],
+      },
+    ],
+  },
 ];
 
 function $(sel, root = document) {
