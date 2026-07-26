@@ -21,7 +21,7 @@ import (
 var (
 	configFile = "config/earapi.json"
 	config     earapiSettings
-	appVersion = "v0.0.30"
+	appVersion = "v0.0.31"
 )
 
 func main() {
@@ -92,7 +92,7 @@ func main() {
 }
 
 func runAPIServer() {
-	//setup gin to build the API
+	// setup gin to build the API
 	r := gin.Default()
 
 	// Handler for the root path
@@ -195,20 +195,18 @@ func runAPIServer() {
 		}
 	}
 
-	httpserver :=
-		&http.Server{
-			Addr:    fmt.Sprintf("%s%s", ":", config.API.Port),
-			Handler: r,
-		}
+	httpserver := &http.Server{
+		Addr:    fmt.Sprintf("%s%s", ":", config.API.Port),
+		Handler: r,
+	}
 
 	go func() {
 		if err := httpserver.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Println(err)
 		}
-
 	}()
 
-	//setup channels for capturing the termination signal from the OS
+	// setup channels for capturing the termination signal from the OS
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
