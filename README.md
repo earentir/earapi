@@ -1,6 +1,6 @@
 # EarAPI
 
-A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, IMDb watchlist parsing, Jellyfin playlist sync, tile layout calculations, and Discord Magic Time timestamps.
+A small HTTP API built with Gin exposing Steam, TMDB, Netflix Top 10, YouTube playlist utilities, IMDb watchlist parsing, Jellyfin playlist sync, health/eating tracker, tile layout calculations, and Discord Magic Time timestamps.
 
 ## Run the server
 
@@ -701,6 +701,92 @@ curl -sS https://api.earentir.dev/jobs/v1/JOB_ID
 curl -N https://api.earentir.dev/jobs/v1/JOB_ID/events
 ```
 
+## Health tracker endpoints
+
+Base: `/health/v1`
+
+Eating habits, weight, and food reference data. Data is stored in one **SQLite** file (`database/sql`): `healthdata/health.db`, with a `user_id` column on every table (matches `X-User`). Initial load from markdown is a one-time CLI step (not on every server start).
+
+Auth (all routes except `help`): send `X-User` and `X-API-Key`, or `Authorization: Bearer <token>` with `X-User`, or `?user=&token=` on GET.
+
+```bash
+curl -sS https://api.earentir.dev/health/v1/help | jq '.'
+
+# Weight
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  https://api.earentir.dev/health/v1/weight/latest | jq '.'
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  'https://api.earentir.dev/health/v1/weight?from=2026-10-01&to=2026-10-31' | jq '.weights | length'
+curl -sS -X POST https://api.earentir.dev/health/v1/weight \
+  -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' -H 'Content-Type: application/json' \
+  -d '{"date":"2026-11-11","kg":142.5,"note":"post-BM","protocol":true}' | jq '.'
+
+# Foods (all, fuzzy search, add)
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  https://api.earentir.dev/health/v1/foods | jq '.count'
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  'https://api.earentir.dev/health/v1/foods?q=pasta&limit=5' | jq '.foods'
+
+# Eating days (filter, get, meals)
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  'https://api.earentir.dev/health/v1/days?from=2026-11-01&q=moussaka&slot=dinner' | jq '.count'
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  https://api.earentir.dev/health/v1/days/2026-11-10 | jq '.day.totals'
+curl -sS -X POST https://api.earentir.dev/health/v1/days/2026-11-11/meals \
+  -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' -H 'Content-Type: application/json' \
+  -d '{"slot":"lunch","items":[{"name":"Pasta (cooked, no salt)","grams":120}],"kcal_margin":0.10}' | jq '.'
+```
+
+Add `health.users` to `config/earapi.json` (see below). Default template uses username `pantazis` and token `change-me`.
+
+### Initial import from `mddata/`
+
+```bash
+./earapi --health-import-mddata pantazis
+```
+
+Replaces that user's rows in `healthdata/health.db` from the markdown files in `mddata/`. Run again only if you want to reset from source files.
+
+### Import (JSON) via API
+
+Legacy layout (replace **or** single bundle file):
+
+```
+healthdata/
+  health.db              # shared SQLite for all users
+  weight.json            # optional legacy JSON import (source=legacy)
+  foods.json             # array of foods
+  days/2026-11-10.json   # one day per file
+  # OR
+  health.bundle.json     # { "weights", "foods", "days" }
+```
+
+Force import via API:
+
+```bash
+# Check whether legacy JSON files are present
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  https://api.earentir.dev/health/v1/import/json/status | jq '.'
+
+# Load JSON from user dir (replace DB contents by default)
+curl -sS -X POST -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  'https://api.earentir.dev/health/v1/import/json?source=legacy'
+
+# Merge instead of replace
+curl -sS -X POST -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  'https://api.earentir.dev/health/v1/import/json?merge=true&source=legacy'
+
+# POST a bundle in the body
+curl -sS -X POST -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  -H 'Content-Type: application/json' \
+  'https://api.earentir.dev/health/v1/import/json?source=body' \
+  -d '{"weights":[],"foods":[],"days":[]}' 
+
+# Re-import from mddata markdown
+curl -sS -X POST -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  'https://api.earentir.dev/health/v1/import/markdown'
+```
+
 ## Server configuration
 
 `config/earapi.json` controls runtime settings, e.g.:
@@ -723,10 +809,16 @@ curl -N https://api.earentir.dev/jobs/v1/JOB_ID/events
     "cache_minutes": 360,
     "browser_path": "",
     "browser_headful": false
+  },
+  "health": {
+    "users": [
+      { "username": "pantazis", "token": "pick-a-simple-token" }
+    ]
   }
 }
 ```
 
+- **Health:** set `health.users` with at least one `{ "username", "token" }` pair for `/health/v1` API access.
 - For YouTube, set `client_id`/`client_secret` for your OAuth client.
 - Use `--youtube-auth-device` to obtain and persist `refresh_token`.
 - `watchlist.cache_minutes`: IMDb list disk cache TTL (default 360). Set `-1` to disable.
