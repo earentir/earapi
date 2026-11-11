@@ -44,6 +44,36 @@ func TestParseFoodSnippet(t *testing.T) {
 	}
 }
 
+func TestParseMealTotalWithMargin(t *testing.T) {
+	raw := `Soup-tomato mix 400 g ~92 / ~112 + moussaka 200 g ~440 / ~390 → **~573 / ~554 → +10% margin = ~609**`
+	sod, kc := parseMealTotalFromRaw(raw)
+	if sod != 573 || kc != 609 {
+		t.Fatalf("got sod=%v kc=%v", sod, kc)
+	}
+}
+
+func TestHydrateDayFromRaw(t *testing.T) {
+	d := Day{
+		Date: "2026-11-10",
+		Meals: map[string]MealSlot{
+			"lunch":  {Raw: "— (no lunch, user)"},
+			"dinner": {Raw: `soup → **~573 / ~554 → +10% margin = ~609**`},
+			"snack":  {Raw: `eggs → **~1,129 / ~857 → +10% margin = ~926**`},
+		},
+		BP: "**~1,702 / ~1,535**",
+	}
+	hydrateDayFromRaw(&d)
+	if d.BP != "" {
+		t.Fatalf("bp should be cleared, got %q", d.BP)
+	}
+	if d.Meals["dinner"].Kcal != 609 || d.Meals["snack"].Kcal != 926 {
+		t.Fatalf("meals %+v", d.Meals)
+	}
+	if d.Totals.Kcal != 609+926 {
+		t.Fatalf("totals %+v", d.Totals)
+	}
+}
+
 func TestParseMonthSnippet(t *testing.T) {
 	snippet := `| Date | Lunch (mg / kcal) | Dinner (mg / kcal) | Snack (mg / kcal) | Day total (mg / kcal) | BP | Walking |
 | Nov 1 | lunch text **~198 / ~380** | | snack **~162 / ~477** | **~360 / ~857** | | |

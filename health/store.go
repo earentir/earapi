@@ -19,10 +19,10 @@ var (
 
 // Store is one user's slice of the shared SQLite database.
 type Store struct {
-	mu       sync.Mutex
-	db       *sql.DB
-	userID   string
-	userDir  string
+	mu      sync.Mutex
+	db      *sql.DB
+	userID  string
+	userDir string
 }
 
 // NewStore attaches a user to the shared DB (healthdata/health.db).
@@ -225,6 +225,88 @@ func (s *Store) AddWeight(w WeighIn) (WeighIn, error) {
 	return w, nil
 }
 
+func (s *Store) WeightByID(id string) (*WeighIn, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.weightByIDUnlocked(id)
+}
+
+func (s *Store) weightByIDUnlocked(id string) (*WeighIn, bool) {
+	row := s.db.QueryRow(`SELECT id, date, kg, rhr_bpm, note, protocol, kg_raw FROM weigh_ins
+		WHERE user_id = ? AND id = ?`, s.userID, id)
+	var w WeighIn
+	var rhr sql.NullInt64
+	var prot int
+	if err := row.Scan(&w.ID, &w.Date, &w.Kg, &rhr, &w.Note, &prot, &w.KgRaw); err != nil {
+		return nil, false
+	}
+	if rhr.Valid {
+		v := int(rhr.Int64)
+		w.RHRBpm = &v
+	}
+	w.Protocol = prot != 0
+	return &w, true
+}
+
+func (s *Store) UpdateWeight(id string, patch WeighIn) (*WeighIn, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, ok := s.weightByIDUnlocked(id)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if patch.Date != "" {
+		cur.Date = patch.Date
+	}
+	if patch.Kg > 0 {
+		cur.Kg = patch.Kg
+	}
+	cur.Note = patch.Note
+	cur.KgRaw = patch.KgRaw
+	cur.Protocol = patch.Protocol
+	if patch.RHRBpm != nil {
+		cur.RHRBpm = patch.RHRBpm
+	}
+	if err := s.writeWeightUnlocked(*cur); err != nil {
+		return nil, err
+	}
+	return cur, nil
+}
+
+func (s *Store) writeWeightUnlocked(w WeighIn) error {
+	_, err := s.db.Exec(`UPDATE weigh_ins SET date=?, kg=?, rhr_bpm=?, note=?, protocol=?, kg_raw=? WHERE user_id = ? AND id=?`,
+		w.Date, w.Kg, nullInt(w.RHRBpm), w.Note, boolInt(w.Protocol), w.KgRaw, s.userID, w.ID)
+	return err
+}
+
+func (s *Store) DeleteWeight(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`DELETE FROM weigh_ins WHERE user_id = ? AND id = ?`, s.userID, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func nullInt(p *int) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 // --- foods ---
 
 func (s *Store) ListFoods() []Food {
@@ -270,6 +352,88 @@ func (s *Store) FoodByID(id string) (*Food, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.foodByIDUnlocked(id)
+}
+
+// EnsureFood creates a catalog food or updates per-100g fields when it already exists (by id or name).
+func (s *Store) EnsureFood(f Food) (Food, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name := strings.TrimSpace(f.Name)
+	if f.ID != "" {
+		if cur, ok := s.foodByIDUnlocked(f.ID); ok {
+			applyFoodPatch(cur, f)
+			if err := s.writeFoodUnlocked(*cur); err != nil {
+				return Food{}, err
+			}
+			return *cur, nil
+		}
+		if name == "" {
+			return Food{}, fmt.Errorf("%w: unknown food id %q and no name", ErrInvalidInput, f.ID)
+		}
+	}
+	if name == "" {
+		return Food{}, fmt.Errorf("%w: name required", ErrInvalidInput)
+	}
+	var existingID string
+	err := s.db.QueryRow(`SELECT id FROM foods WHERE user_id = ? AND name = ? COLLATE NOCASE`, s.userID, name).Scan(&existingID)
+	if err == nil {
+		cur, ok := s.foodByIDUnlocked(existingID)
+		if !ok {
+			return Food{}, err
+		}
+		applyFoodPatch(cur, f)
+		if err := s.writeFoodUnlocked(*cur); err != nil {
+			return Food{}, err
+		}
+		return *cur, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return Food{}, err
+	}
+	if f.KcalPer100g == nil && f.SodiumMgPer100g == nil {
+		return Food{}, fmt.Errorf("%w: new food %q needs kcal_per_100g and/or sodium_mg_per_100g", ErrInvalidInput, name)
+	}
+	taken := map[string]bool{}
+	rows, _ := s.db.Query(`SELECT id FROM foods WHERE user_id = ?`, s.userID)
+	if rows != nil {
+		for rows.Next() {
+			var id string
+			_ = rows.Scan(&id)
+			taken[id] = true
+		}
+		rows.Close()
+	}
+	f.Name = name
+	if f.ID == "" {
+		f.ID = UniqueSlug(name, taken)
+	} else if taken[f.ID] {
+		return Food{}, ErrConflict
+	}
+	if err := insertFoodUser(s.db, s.userID, f); err != nil {
+		return Food{}, err
+	}
+	return f, nil
+}
+
+func applyFoodPatch(cur *Food, patch Food) {
+	if patch.Name != "" {
+		cur.Name = strings.TrimSpace(patch.Name)
+	}
+	if patch.KcalPer100g != nil {
+		cur.KcalPer100g = patch.KcalPer100g
+	}
+	if patch.SodiumMgPer100g != nil {
+		cur.SodiumMgPer100g = patch.SodiumMgPer100g
+	}
+	if patch.Notes != "" {
+		cur.Notes = patch.Notes
+	}
+}
+
+func (s *Store) writeFoodUnlocked(f Food) error {
+	_, err := s.db.Exec(`UPDATE foods SET name=?, kcal_per_100g=?, sodium_mg_per_100g=?, notes=? WHERE user_id = ? AND id=?`,
+		f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes, s.userID, f.ID)
+	return err
 }
 
 func (s *Store) AddFood(f Food) (Food, error) {
@@ -336,6 +500,28 @@ func (s *Store) UpdateFood(id string, patch Food) (*Food, error) {
 	return cur, nil
 }
 
+func (s *Store) DeleteFood(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`DELETE FROM foods WHERE user_id = ? AND id = ?`, s.userID, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) FoodCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM foods WHERE user_id = ?`, s.userID).Scan(&n)
+	return n
+}
+
 func (s *Store) foodByIDUnlocked(id string) (*Food, bool) {
 	row := s.db.QueryRow(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes FROM foods WHERE user_id = ? AND id = ?`, s.userID, id)
 	var f Food
@@ -378,6 +564,7 @@ func (s *Store) readDayUnlocked(date string) (*Day, bool) {
 		_ = json.Unmarshal([]byte(itemsJSON), &m.Items)
 		d.Meals[slot] = m
 	}
+	hydrateDayFromRaw(&d)
 	return &d, true
 }
 
@@ -403,6 +590,36 @@ func (s *Store) ListDayDates() []string {
 		}
 	}
 	return dates
+}
+
+func (s *Store) PatchDayMeta(date string, bp, walking *string) (*Day, error) {
+	if date == "" {
+		return nil, fmt.Errorf("%w: date required", ErrInvalidInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.readDayUnlocked(date)
+	if !ok {
+		d = &Day{Date: date, Meals: map[string]MealSlot{}}
+	}
+	if bp != nil {
+		d.BP = *bp
+	}
+	if walking != nil {
+		d.Walking = *walking
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err := s.saveDayTx(tx, d); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 func (s *Store) PutDay(d Day) error {
@@ -525,19 +742,8 @@ func RecomputeDayTotals(d *Day) {
 		if !ok {
 			continue
 		}
-		if len(m.Items) > 0 && (m.Kcal == 0 && m.SodiumMg == 0) {
-			var is, ik float64
-			for _, it := range m.Items {
-				is += it.SodiumMg
-				ik += it.Kcal
-			}
-			m.SodiumMg = is
-			m.Kcal = ik
-			if m.KcalMargin > 0 {
-				m.Kcal = m.Kcal * (1 + m.KcalMargin)
-			}
-			d.Meals[slot] = m
-		}
+		FinalizeMealTotals(&m)
+		d.Meals[slot] = m
 		sod += m.SodiumMg
 		kc += m.Kcal
 	}
@@ -574,13 +780,17 @@ func (s *Store) FilterDays(from, to, exactDate, q, slot string, limit int) []Day
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
-	var out []Day
+	var dates []string
 	for rows.Next() {
 		var dt string
 		if rows.Scan(&dt) != nil {
 			continue
 		}
+		dates = append(dates, dt)
+	}
+	rows.Close()
+	var out []Day
+	for _, dt := range dates {
 		d, ok := s.readDayUnlocked(dt)
 		if !ok {
 			continue
@@ -641,16 +851,28 @@ func dayMatchesQuery(d *Day, q string) bool {
 }
 
 func (s *Store) ScaleItemFromFood(it *MealItem) error {
+	if len(it.Parts) > 0 {
+		return s.scaleDish(it)
+	}
 	if it.Kcal > 0 && it.SodiumMg > 0 {
 		return nil
 	}
 	if it.Grams <= 0 {
 		return nil
 	}
-	foods := s.ListFoods()
-	f, ok := BestFoodMatch(foods, it.Name)
+	var f *Food
+	var ok bool
+	if it.FoodID != "" {
+		f, ok = s.FoodByID(it.FoodID)
+	} else {
+		foods := s.ListFoods()
+		f, ok = BestFoodMatch(foods, it.Name)
+	}
 	if !ok || f == nil {
-		return fmt.Errorf("%w: unknown food %q — add to catalog or pass kcal/sodium_mg", ErrInvalidInput, it.Name)
+		return fmt.Errorf("%w: unknown food %q — use ensure_foods, item kcal_per_100g, or pass kcal/sodium_mg", ErrInvalidInput, it.Name)
+	}
+	if strings.TrimSpace(it.Name) == "" {
+		it.Name = f.Name
 	}
 	if f.KcalPer100g != nil && it.Kcal == 0 {
 		it.Kcal = *f.KcalPer100g * it.Grams / 100
@@ -660,6 +882,36 @@ func (s *Store) ScaleItemFromFood(it *MealItem) error {
 	}
 	if it.Kcal == 0 && it.SodiumMg == 0 {
 		return fmt.Errorf("%w: food %q has no per-100g data", ErrInvalidInput, it.Name)
+	}
+	return nil
+}
+
+func (s *Store) scaleDish(it *MealItem) error {
+	var batch, k, n float64
+	for i := range it.Parts {
+		p := &it.Parts[i]
+		if strings.TrimSpace(p.Name) == "" {
+			continue
+		}
+		if err := s.ScaleItemFromFood(p); err != nil {
+			return err
+		}
+		batch += p.Grams
+		k += p.Kcal
+		n += p.SodiumMg
+	}
+	if it.Grams <= 0 {
+		it.Grams = batch
+	}
+	factor := 1.0
+	if batch > 0 && it.Grams > 0 {
+		factor = it.Grams / batch
+	}
+	if it.Kcal == 0 {
+		it.Kcal = k * factor
+	}
+	if it.SodiumMg == 0 {
+		it.SodiumMg = n * factor
 	}
 	return nil
 }

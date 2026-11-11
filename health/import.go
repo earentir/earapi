@@ -272,59 +272,145 @@ func parseMonthMarkdown(content string, year int) []Day {
 			Date:  iso,
 			Meals: map[string]MealSlot{},
 		}
-		d.Meals["lunch"] = MealSlot{Raw: strings.TrimSpace(cells[1])}
-		d.Meals["dinner"] = MealSlot{Raw: strings.TrimSpace(cells[2])}
-		d.Meals["snack"] = MealSlot{Raw: strings.TrimSpace(cells[3])}
-		if tot := strings.TrimSpace(cells[4]); tot != "" {
-			sod, kc := parseDayTotalCell(tot)
-			d.Totals = DayTotals{SodiumMg: sod, Kcal: kc}
+		if len(cells) > 1 {
+			d.Meals["lunch"] = MealSlot{Raw: strings.TrimSpace(cells[1])}
 		}
-		if len(cells) > 5 {
-			d.BP = strings.TrimSpace(cells[5])
+		if len(cells) > 2 {
+			d.Meals["dinner"] = MealSlot{Raw: strings.TrimSpace(cells[2])}
 		}
-		if len(cells) > 6 {
-			d.Walking = strings.TrimSpace(cells[6])
+		if len(cells) > 3 {
+			d.Meals["snack"] = MealSlot{Raw: strings.TrimSpace(cells[3])}
 		}
-		for slot, key := range map[string]string{"lunch": "lunch", "dinner": "dinner", "snack": "snack"} {
-			if sod, kc := parseMealTotalFromRaw(d.Meals[key].Raw); sod > 0 || kc > 0 {
-				m := d.Meals[key]
-				m.SodiumMg = sod
-				m.Kcal = kc
-				d.Meals[slot] = m
+		for i := 4; i < len(cells); i++ {
+			c := strings.TrimSpace(cells[i])
+			if c == "" {
+				continue
 			}
+			if looksLikeOnlyTotal(c) {
+				if d.Totals.Kcal == 0 && d.Totals.SodiumMg == 0 {
+					sod, kc := parseDayTotalCell(c)
+					d.Totals = DayTotals{SodiumMg: sod, Kcal: kc}
+				}
+				continue
+			}
+			if looksLikeBP(c) {
+				d.BP = c
+				continue
+			}
+			putExtraMealRaw(&d, c)
 		}
-		if d.Totals.Kcal == 0 && d.Totals.SodiumMg == 0 {
-			RecomputeDayTotals(&d)
-		}
+		hydrateDayFromRaw(&d)
 		out = append(out, d)
 	}
 	return out
 }
 
-var mealTotalRE = regexp.MustCompile(`\*\*~?([\d,.]+)\s*/\s*~?([\d,.]+)\*\*`)
+var (
+	mealMarginRE = regexp.MustCompile(`(?i)\*\*~?([\d,.]+)\s*/\s*~?([\d,.]+)\s*(?:→|->)\s*\+?\s*[\d.]+\s*%\s*margin\s*=\s*~?([\d,.]+)`)
+	mealTotalRE  = regexp.MustCompile(`\*\*~?([\d,.]+)\s*/\s*~?([\d,.]+)\*\*`)
+	pairRE       = regexp.MustCompile(`~?([\d,.]+)\s*/\s*~?([\d,.]+)`)
+)
 
 func parseMealTotalFromRaw(raw string) (sod, kc float64) {
-	m := mealTotalRE.FindStringSubmatch(raw)
-	if len(m) < 3 {
-		return 0, 0
+	if ms := mealMarginRE.FindAllStringSubmatch(raw, -1); len(ms) > 0 {
+		last := ms[len(ms)-1]
+		return parseFloatLoose(last[1]), parseFloatLoose(last[3])
 	}
-	sod = parseFloatLoose(m[1])
-	kc = parseFloatLoose(m[2])
-	return sod, kc
+	if ms := mealTotalRE.FindAllStringSubmatch(raw, -1); len(ms) > 0 {
+		last := ms[len(ms)-1]
+		return parseFloatLoose(last[1]), parseFloatLoose(last[2])
+	}
+	return 0, 0
 }
 
 func parseDayTotalCell(s string) (sod, kc float64) {
-	m := mealTotalRE.FindStringSubmatch(s)
-	if len(m) >= 3 {
-		return parseFloatLoose(m[1]), parseFloatLoose(m[2])
+	sod, kc = parseMealTotalFromRaw(s)
+	if sod > 0 || kc > 0 {
+		return sod, kc
 	}
-	// e.g. **~360 / ~857** without bold variants
-	re := regexp.MustCompile(`~?([\d,.]+)\s*/\s*~?([\d,.]+)`)
-	m2 := re.FindStringSubmatch(s)
+	m2 := pairRE.FindStringSubmatch(s)
 	if len(m2) >= 3 {
 		return parseFloatLoose(m2[1]), parseFloatLoose(m2[2])
 	}
 	return 0, 0
+}
+
+func looksLikeBP(s string) bool {
+	ok, _ := regexp.MatchString(`^\d{2,3}\s*/\s*\d{2,3}$`, strings.TrimSpace(s))
+	return ok
+}
+
+func looksLikeOnlyTotal(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 48 {
+		return false
+	}
+	sod, kc := parseDayTotalCell(s)
+	return sod > 0 || kc > 0
+}
+
+func relocateMisplacedMealText(d *Day) {
+	move := func(s *string) {
+		v := strings.TrimSpace(*s)
+		if v == "" {
+			return
+		}
+		if looksLikeOnlyTotal(v) {
+			if d.Totals.Kcal == 0 && d.Totals.SodiumMg == 0 {
+				d.Totals.SodiumMg, d.Totals.Kcal = parseDayTotalCell(v)
+			}
+			*s = ""
+			return
+		}
+		if len(v) > 60 && strings.Contains(v, "/") {
+			putExtraMealRaw(d, v)
+			*s = ""
+		}
+	}
+	move(&d.BP)
+	move(&d.Walking)
+}
+
+func putExtraMealRaw(d *Day, raw string) {
+	if d.Meals == nil {
+		d.Meals = map[string]MealSlot{}
+	}
+	for _, slot := range []string{"dinner", "snack", "lunch"} {
+		m := d.Meals[slot]
+		if strings.TrimSpace(m.Raw) == "" {
+			m.Raw = raw
+			d.Meals[slot] = m
+			return
+		}
+	}
+	m := d.Meals["snack"]
+	m.Raw = strings.TrimSpace(m.Raw + " · " + raw)
+	d.Meals["snack"] = m
+}
+
+// hydrateDayFromRaw fills slot/day totals from markdown meal text when numeric fields are empty.
+func hydrateDayFromRaw(d *Day) {
+	if d == nil {
+		return
+	}
+	relocateMisplacedMealText(d)
+	for _, slot := range []string{"lunch", "dinner", "snack"} {
+		m := d.Meals[slot]
+		if (m.Kcal == 0 && m.SodiumMg == 0) && strings.TrimSpace(m.Raw) != "" {
+			sod, kc := parseMealTotalFromRaw(m.Raw)
+			m.SodiumMg = sod
+			m.Kcal = kc
+		}
+		if len(m.Items) == 0 && strings.TrimSpace(m.Raw) != "" {
+			if parsed := ParseMealItemsFromRaw(m.Raw); len(parsed) > 0 {
+				m.Items = parsed
+			}
+		}
+		d.Meals[slot] = m
+	}
+	if d.Totals.Kcal == 0 && d.Totals.SodiumMg == 0 {
+		RecomputeDayTotals(d)
+	}
 }
 
 func parseFloatLoose(s string) float64 {
