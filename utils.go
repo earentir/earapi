@@ -8,7 +8,7 @@ import (
 
 func loadConfig() {
 	//Create the api folders if they don't exist
-	err := checkAndCreateFolders("steamdata", "jokedata", "config", "moviedata", "youtubedata", "watchlistdata")
+	err := checkAndCreateFolders("steamdata", "jokedata", "config", "moviedata", "youtubedata", "watchlistdata", "healthdata", "mddata")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(125)
@@ -37,6 +37,11 @@ func loadConfig() {
                 "cache_minutes": 360,
                 "browser_path": "",
                 "browser_headful": false
+            },
+            "health": {
+                "users": [
+                    { "username": "pantazis", "token": "change-me" }
+                ]
             }
         }`), 0644)
 		if err != nil {

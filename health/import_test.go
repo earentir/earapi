@@ -1,0 +1,87 @@
+package health
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestParseWeightSnippet(t *testing.T) {
+	snippet := `| Date | kg | RHR (bpm) | Note |
+| --- | --- | --- | --- |
+| Oct 23 | 144.3 | — | **PROTOCOL ✓** |
+| Oct 12 | 148.3 | — | evening |
+`
+	rows := parseWeightMarkdown(snippet, 2026)
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows got %d", len(rows))
+	}
+	if rows[0].Date != "2026-10-23" || rows[0].Kg != 144.3 {
+		t.Fatalf("oct 23: %+v", rows[0])
+	}
+	if rows[1].ID != "w_2026-10-12_1" {
+		t.Fatalf("id: %s", rows[1].ID)
+	}
+}
+
+func TestParseFoodSnippet(t *testing.T) {
+	snippet := `## Reference kcal / sodium per 100 g (whole foods in regular rotation)
+
+| Food | kcal / 100 g | sodium mg / 100 g | Notes |
+| --- | --- | --- | --- |
+| Pasta (cooked, no salt) | ~155 | ~1 | Bow pasta |
+`
+	foods := parseFoodMarkdown(snippet)
+	if len(foods) != 1 {
+		t.Fatalf("want 1 food got %d", len(foods))
+	}
+	if foods[0].Name != "Pasta (cooked, no salt)" {
+		t.Fatalf("name %q", foods[0].Name)
+	}
+	if foods[0].KcalPer100g == nil || *foods[0].KcalPer100g != 155 {
+		t.Fatalf("kcal %+v", foods[0].KcalPer100g)
+	}
+}
+
+func TestParseMonthSnippet(t *testing.T) {
+	snippet := `| Date | Lunch (mg / kcal) | Dinner (mg / kcal) | Snack (mg / kcal) | Day total (mg / kcal) | BP | Walking |
+| Nov 1 | lunch text **~198 / ~380** | | snack **~162 / ~477** | **~360 / ~857** | | |
+`
+	days := parseMonthMarkdown(snippet, 2026)
+	if len(days) != 1 {
+		t.Fatalf("want 1 day got %d", len(days))
+	}
+	if days[0].Date != "2026-11-01" {
+		t.Fatalf("date %s", days[0].Date)
+	}
+	if days[0].Totals.Kcal != 857 || days[0].Totals.SodiumMg != 360 {
+		t.Fatalf("totals %+v", days[0].Totals)
+	}
+}
+
+func TestImportFromRepoMDData(t *testing.T) {
+	dir := filepath.Join("..", "mddata")
+	if _, err := os.Stat(dir); err != nil {
+		t.Skip("mddata not present")
+	}
+	w, f, d, err := ImportFromMDDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w) < 10 {
+		t.Fatalf("expected many weights got %d", len(w))
+	}
+	if len(f) < 20 {
+		t.Fatalf("expected many foods got %d", len(f))
+	}
+	if len(d) < 5 {
+		t.Fatalf("expected many days got %d", len(d))
+	}
+	// fuzzy sanity
+	names := strings.Join([]string{f[0].Name}, "")
+	if names == "" {
+		t.Fatal("empty food")
+	}
+	_ = w
+}

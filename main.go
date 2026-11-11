@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 
+	healthpkg "earapi/health"
 	wlpackage "earapi/watchlist"
 	ytpackage "earapi/youtube"
 )
@@ -21,13 +22,14 @@ import (
 var (
 	configFile = "config/earapi.json"
 	config     earapiSettings
-	appVersion = "v0.0.31"
+	appVersion = "v0.0.35"
 )
 
 func main() {
 	var authURL bool
 	var authCode string
 	var authDevice bool
+	var healthImportMDUser string
 
 	cmd := &cobra.Command{
 		Use:     "earapi",
@@ -53,6 +55,16 @@ func main() {
 				} else {
 					fmt.Println("No refresh token received; ensure AccessTypeOffline and ApprovalForce.")
 				}
+				return nil
+			}
+
+			if healthImportMDUser != "" {
+				counts, err := healthpkg.ImportMarkdownForUser("healthdata", "mddata", healthImportMDUser)
+				if err != nil {
+					fmt.Println("health import error:", err)
+					return err
+				}
+				fmt.Printf("Imported for %q: %+v\n", healthImportMDUser, counts)
 				return nil
 			}
 
@@ -85,6 +97,7 @@ func main() {
 	cmd.Flags().BoolVar(&authURL, "youtube-auth-url", false, "print YouTube OAuth URL and exit")
 	cmd.Flags().StringVar(&authCode, "youtube-auth-code", "", "exchange OAuth code for refresh token")
 	cmd.Flags().BoolVar(&authDevice, "youtube-auth-device", false, "start OAuth device flow for headless auth")
+	cmd.Flags().StringVar(&healthImportMDUser, "health-import-mddata", "", "one-shot import mddata markdown into health.db for this user (exits)")
 
 	if err := cmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -196,6 +209,26 @@ func runAPIServer() {
 		}
 	}
 
+	// Health tracker (weight, foods, eating days)
+	{
+		var healthUsers []healthpkg.UserCred
+		for _, u := range config.Health.Users {
+			healthUsers = append(healthUsers, healthpkg.UserCred{
+				Username: u.Username,
+				Token:    u.Token,
+			})
+		}
+		hlsvc, err := healthpkg.New(healthpkg.Config{
+			DataDir:   "healthdata",
+			MDDataDir: "mddata",
+		}, healthUsers)
+		if err != nil {
+			fmt.Println("Health init error:", err)
+		} else {
+			healthpkg.RegisterRoutes(r, hlsvc)
+		}
+	}
+
 	httpserver := &http.Server{
 		Addr:    fmt.Sprintf("%s%s", ":", config.API.Port),
 		Handler: r,
@@ -244,8 +277,8 @@ func corsMiddleware() gin.HandlerFunc {
 		if allowed[origin] {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Vary", "Origin")
-			c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "Content-Type, Accept")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Accept, X-User, X-API-Key, Authorization")
 			c.Header("Access-Control-Max-Age", "86400")
 		}
 		if c.Request.Method == http.MethodOptions {

@@ -22,4 +22,12 @@ type earapiSettings struct {
 		BrowserPath    string `json:"browser_path"`  // optional Chrome/Chromium path for p.* aliases
 		BrowserHeadful bool   `json:"browser_headful"`
 	} `json:"watchlist"`
+	Health struct {
+		Users []healthUserConfig `json:"users"`
+	} `json:"health"`
+}
+
+type healthUserConfig struct {
+	Username string `json:"username"`
+	Token    string `json:"token"`
 }
