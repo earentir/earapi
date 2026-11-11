@@ -26,4 +26,6 @@ config/
 moviedata
 youtubedata/
 watchlistdata/
+healthdata/
+mddata/
 earapi
