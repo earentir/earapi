@@ -2,6 +2,7 @@ package health
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,8 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterRoutes mounts /health/v1 routes.
+// RegisterRoutes mounts /health/v1 routes and the /health/ui tracker.
 func RegisterRoutes(r *gin.Engine, svc *Service) {
+	registerUI(r)
+
 	g := r.Group("/health/v1")
 	g.GET("/help", svc.handleHelp)
 
@@ -18,21 +21,32 @@ func RegisterRoutes(r *gin.Engine, svc *Service) {
 	p := g.Group("")
 	p.Use(auth)
 	{
+		p.GET("/overview", svc.handleOverview)
+		p.GET("/gaps", svc.handleNutritionGaps)
+		p.POST("/fill", svc.handleNutritionFill)
+		p.POST("/log", svc.handleLog)
+
 		p.GET("/weight/latest", svc.handleWeightLatest)
 		p.GET("/weight", svc.handleWeightList)
 		p.POST("/weight", svc.handleWeightAdd)
+		p.PUT("/weight/:id", svc.handleWeightUpdate)
+		p.DELETE("/weight/:id", svc.handleWeightDelete)
 
 		p.GET("/foods", svc.handleFoodsList)
+		p.POST("/foods/batch", svc.handleFoodsBatch)
 		p.GET("/foods/:id", svc.handleFoodGet)
 		p.POST("/foods", svc.handleFoodAdd)
 		p.PUT("/foods/:id", svc.handleFoodUpdate)
+		p.DELETE("/foods/:id", svc.handleFoodDelete)
 
 		p.GET("/days", svc.handleDaysList)
 		p.GET("/days/:date", svc.handleDayGet)
 		p.POST("/days", svc.handleDayCreate)
 		p.PUT("/days/:date", svc.handleDayPut)
+		p.PATCH("/days/:date", svc.handleDayPatch)
 		p.DELETE("/days/:date", svc.handleDayDelete)
 
+		p.POST("/days/:date/meals/log", svc.handleDayMealLog)
 		p.POST("/days/:date/meals", svc.handleDayMealPost)
 		p.PUT("/days/:date/meals/:slot", svc.handleDayMealPut)
 		p.DELETE("/days/:date/meals/:slot", svc.handleDayMealDelete)
@@ -58,21 +72,33 @@ func (s *Service) store(c *gin.Context) (*Store, bool) {
 
 func (s *Service) handleHelp(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"auth": "Send X-User and X-API-Key headers (or ?user=&token= on GET). Bearer token works with X-User.",
+		"auth":         "Send X-User and X-API-Key headers (or ?user=&token= on GET). Bearer token works with X-User.",
+		"ui":           "/health/ui/",
+		"llm_workflow": "GET /gaps once for rows missing per-100g or unscorable items (no kcal numbers in response). POST /fill with foods[] (batch EnsureFood) to upsert catalog and auto-recompute affected meals. POST /log for new eating. Items are name+grams or dishes with parts[]. Import/markdown splits + into structured items. Server computes kcal/sodium.",
 		"routes": []string{
 			"GET /health/v1/help",
+			"GET /health/v1/overview?days=14",
+			"GET /health/v1/gaps?from=&to=&limit=",
+			"POST /health/v1/fill",
+			"POST /health/v1/log",
 			"GET /health/v1/weight/latest",
 			"GET /health/v1/weight?from=&to=",
 			"POST /health/v1/weight",
+			"PUT /health/v1/weight/:id",
+			"DELETE /health/v1/weight/:id",
 			"GET /health/v1/foods?q=&limit=",
+			"POST /health/v1/foods/batch",
 			"GET /health/v1/foods/:id",
 			"POST /health/v1/foods",
 			"PUT /health/v1/foods/:id",
+			"DELETE /health/v1/foods/:id",
 			"GET /health/v1/days?from=&to=&date=&q=&slot=&limit=",
 			"GET /health/v1/days/:date",
 			"POST /health/v1/days",
 			"PUT /health/v1/days/:date",
+			"PATCH /health/v1/days/:date",
 			"DELETE /health/v1/days/:date",
+			"POST /health/v1/days/:date/meals/log",
 			"POST /health/v1/days/:date/meals",
 			"PUT /health/v1/days/:date/meals/:slot",
 			"DELETE /health/v1/days/:date/meals/:slot",
@@ -81,17 +107,100 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"POST /health/v1/import/markdown?replace=true",
 		},
 		"examples": gin.H{
-			"add_weight": gin.H{"date": "2026-11-11", "kg": 142.5, "note": "morning post-BM", "protocol": true},
-			"add_meal": gin.H{
-				"slot": "lunch",
-				"items": []gin.H{
-					{"name": "Pasta (cooked, no salt)", "grams": 120},
-					{"name": "Chicken breast (cooked, no salt)", "grams": 80},
-				},
+			"log_day": gin.H{
+				"date":        "2026-11-11",
 				"kcal_margin": 0.10,
+				"bp":          "128/82",
+				"walking":     "park 40min",
+				"weight":      gin.H{"kg": 142.5, "protocol": true, "note": "morning post-BM"},
+				"meals": []gin.H{
+					{"slot": "lunch", "replace": true, "items": []gin.H{
+						{"name": "Pasta (cooked, no salt)", "grams": 120},
+						{"name": "Chicken breast (cooked, no salt)", "grams": 80},
+					}},
+					{"slot": "snack", "items": []gin.H{
+						{"name": "New bar", "grams": 45, "kcal_per_100g": 400, "sodium_mg_per_100g": 120},
+					}},
+					{"slot": "dinner", "items": []gin.H{
+						{"name": "Salad", "grams": 250, "parts": []gin.H{
+							{"name": "Iceberg", "grams": 100},
+							{"name": "Tomato", "grams": 120},
+							{"name": "EVOO", "grams": 6},
+						}},
+					}},
+				},
+			},
+			"log_fix": gin.H{
+				"date":          "2026-11-11",
+				"delete_meals":  []string{"snack"},
+				"delete_foods":  []string{"new-bar"},
+				"weight_update": gin.H{"id": "w_2026-11-11_1", "kg": 142.2, "protocol": true},
+			},
+			"fill_gaps": gin.H{
+				"foods": []gin.H{
+					{"name": "New spice", "kcal_per_100g": 250, "sodium_mg_per_100g": 800},
+					{"id": "pasta", "kcal_per_100g": 155, "sodium_mg_per_100g": 1},
+				},
+				"recompute_days": []string{"2026-11-11"},
 			},
 		},
 	})
+}
+
+func (s *Service) handleNutritionGaps(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	from := c.Query("from")
+	to := c.Query("to")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	c.JSON(http.StatusOK, st.ListNutritionGaps(from, to, limit))
+}
+
+func (s *Service) handleNutritionFill(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body NutritionFill
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	out, err := st.ApplyNutritionFill(body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (s *Service) handleOverview(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	n, _ := strconv.Atoi(c.DefaultQuery("days", "14"))
+	c.JSON(http.StatusOK, st.Overview(n))
+}
+
+func (s *Service) handleLog(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body DayLog
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	out, err := st.ApplyLog(body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 func (s *Service) handleWeightLatest(c *gin.Context) {
@@ -144,6 +253,36 @@ func (s *Service) handleWeightAdd(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"weight": out})
+}
+
+func (s *Service) handleWeightUpdate(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body WeighIn
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	out, err := st.UpdateWeight(c.Param("id"), body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"weight": out})
+}
+
+func (s *Service) handleWeightDelete(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	if err := st.DeleteWeight(c.Param("id")); err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
 }
 
 func (s *Service) handleFoodsList(c *gin.Context) {
@@ -211,6 +350,51 @@ func (s *Service) handleFoodUpdate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"food": out})
 }
 
+func (s *Service) handleFoodDelete(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	if err := st.DeleteFood(c.Param("id")); err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
+}
+
+func (s *Service) handleFoodsBatch(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Upsert []Food   `json:"upsert"`
+		Delete []string `json:"delete"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	upserted := make([]Food, 0, len(body.Upsert))
+	for _, f := range body.Upsert {
+		out, err := st.EnsureFood(f)
+		if err != nil {
+			writeStoreErr(c, err)
+			return
+		}
+		upserted = append(upserted, out)
+	}
+	deleted := make([]string, 0, len(body.Delete))
+	for _, id := range body.Delete {
+		if err := st.DeleteFood(id); err != nil {
+			writeStoreErr(c, err)
+			return
+		}
+		deleted = append(deleted, id)
+	}
+	c.JSON(http.StatusOK, gin.H{"foods": upserted, "deleted": deleted})
+}
+
 func (s *Service) handleDaysList(c *gin.Context) {
 	st, ok := s.store(c)
 	if !ok {
@@ -258,6 +442,10 @@ func (s *Service) handleDayCreate(c *gin.Context) {
 	if d.Meals == nil {
 		d.Meals = map[string]MealSlot{}
 	}
+	if err := st.prepareDayMeals(&d); err != nil {
+		writeStoreErr(c, err)
+		return
+	}
 	if existing, found := st.GetDay(d.Date); found {
 		// merge meals
 		for slot, m := range d.Meals {
@@ -303,6 +491,10 @@ func (s *Service) handleDayPut(c *gin.Context) {
 	if d.Meals == nil {
 		d.Meals = map[string]MealSlot{}
 	}
+	if err := st.prepareDayMeals(&d); err != nil {
+		writeStoreErr(c, err)
+		return
+	}
 	if err := st.PutDay(d); err != nil {
 		writeStoreErr(c, err)
 		return
@@ -323,29 +515,53 @@ func (s *Service) handleDayDelete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": c.Param("date")})
 }
 
-func (s *Service) handleDayMealPost(c *gin.Context) {
+func (s *Service) handleDayPatch(c *gin.Context) {
 	st, ok := s.store(c)
 	if !ok {
 		return
 	}
-	date := c.Param("date")
 	var body struct {
-		Slot        string     `json:"slot"`
-		Items       []MealItem `json:"items"`
-		Note        string     `json:"note"`
-		Raw         string     `json:"raw"`
-		KcalMargin  float64    `json:"kcal_margin"`
-		SodiumMg    float64    `json:"sodium_mg"`
-		Kcal        float64    `json:"kcal"`
-		Replace     bool       `json:"replace"`
+		BP      *string `json:"bp"`
+		Walking *string `json:"walking"`
 	}
 	if err := c.BindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
 	}
-	if body.Slot == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "slot required"})
+	d, err := st.PatchDayMeta(c.Param("date"), body.BP, body.Walking)
+	if err != nil {
+		writeStoreErr(c, err)
 		return
+	}
+	c.JSON(http.StatusOK, gin.H{"day": d})
+}
+
+func (s *Store) prepareDayMeals(d *Day) error {
+	for slot, m := range d.Meals {
+		meal := m
+		if err := s.PrepareMealSlot(&meal, nil); err != nil {
+			return err
+		}
+		d.Meals[slot] = meal
+	}
+	return nil
+}
+
+type mealWriteBody struct {
+	Slot        string     `json:"slot"`
+	Items       []MealItem `json:"items"`
+	EnsureFoods []Food     `json:"ensure_foods,omitempty"`
+	Note        string     `json:"note"`
+	Raw         string     `json:"raw"`
+	KcalMargin  float64    `json:"kcal_margin"`
+	SodiumMg    float64    `json:"sodium_mg"`
+	Kcal        float64    `json:"kcal"`
+	Replace     bool       `json:"replace"`
+}
+
+func mealFromWriteBody(body mealWriteBody) (string, MealSlot, error) {
+	if body.Slot == "" {
+		return "", MealSlot{}, fmt.Errorf("%w: slot required", ErrInvalidInput)
 	}
 	meal := MealSlot{
 		Raw: body.Raw, Items: body.Items, KcalMargin: body.KcalMargin,
@@ -358,22 +574,71 @@ func (s *Service) handleDayMealPost(c *gin.Context) {
 			meal.Raw = body.Note
 		}
 	}
-	for i := range meal.Items {
-		if err := st.ScaleItemFromFood(&meal.Items[i]); err != nil {
+	return body.Slot, meal, nil
+}
+
+func (s *Service) handleDayMealLog(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	date := c.Param("date")
+	var body mealWriteBody
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	slot, meal, err := mealFromWriteBody(body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	ensured := make([]Food, 0, len(body.EnsureFoods))
+	for _, f := range body.EnsureFoods {
+		out, err := st.EnsureFood(f)
+		if err != nil {
 			writeStoreErr(c, err)
 			return
 		}
+		ensured = append(ensured, out)
 	}
-	if len(meal.Items) > 0 && meal.Kcal == 0 {
-		for _, it := range meal.Items {
-			meal.Kcal += it.Kcal
-			meal.SodiumMg += it.SodiumMg
-		}
-		if meal.KcalMargin > 0 {
-			meal.Kcal *= (1 + meal.KcalMargin)
-		}
+	if err := st.PrepareMealSlot(&meal, nil); err != nil {
+		writeStoreErr(c, err)
+		return
 	}
-	d, err := st.UpsertMealSlot(date, body.Slot, meal, body.Replace)
+	d, err := st.UpsertMealSlot(date, slot, meal, body.Replace)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	resp := gin.H{"day": d}
+	if len(ensured) > 0 {
+		resp["foods_ensured"] = ensured
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (s *Service) handleDayMealPost(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	date := c.Param("date")
+	var body mealWriteBody
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	slot, meal, err := mealFromWriteBody(body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	if err := st.PrepareMealSlot(&meal, body.EnsureFoods); err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	d, err := st.UpsertMealSlot(date, slot, meal, body.Replace)
 	if err != nil {
 		writeStoreErr(c, err)
 		return
@@ -388,16 +653,24 @@ func (s *Service) handleDayMealPut(c *gin.Context) {
 	}
 	date := c.Param("date")
 	slot := c.Param("slot")
-	var meal MealSlot
-	if err := c.BindJSON(&meal); err != nil {
+	var body struct {
+		MealSlot
+		EnsureFoods []Food `json:"ensure_foods,omitempty"`
+	}
+	if err := c.BindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
 	}
-	for i := range meal.Items {
-		if err := st.ScaleItemFromFood(&meal.Items[i]); err != nil {
+	meal := body.MealSlot
+	for _, f := range body.EnsureFoods {
+		if _, err := st.EnsureFood(f); err != nil {
 			writeStoreErr(c, err)
 			return
 		}
+	}
+	if err := st.PrepareMealSlot(&meal, nil); err != nil {
+		writeStoreErr(c, err)
+		return
 	}
 	d, err := st.SetMealSlot(date, slot, meal)
 	if err != nil {
