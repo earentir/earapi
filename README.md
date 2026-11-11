@@ -707,10 +707,29 @@ Base: `/health/v1`
 
 Eating habits, weight, and food reference data. Data is stored in one **SQLite** file (`database/sql`): `healthdata/health.db`, with a `user_id` column on every table (matches `X-User`). Initial load from markdown is a one-time CLI step (not on every server start).
 
-Auth (all routes except `help`): send `X-User` and `X-API-Key`, or `Authorization: Bearer <token>` with `X-User`, or `?user=&token=` on GET.
+Auth (all routes except `help` and the UI): send `X-User` and `X-API-Key`, or `Authorization: Bearer <token>` with `X-User`, or `?user=&token=` on GET.
+
+**UI:** [https://api.earentir.dev/health/ui/](https://api.earentir.dev/health/ui/) (also `/health`). Sign in with the same username and token.
+
+For LLM clients: `GET /health/v1/gaps` lists catalog rows and meal items missing per-100g data (no kcal numbers). `POST /health/v1/fill` upserts several foods and recomputes affected meals in one call. `POST /health/v1/log` is for new eating/weight. Markdown import splits meal text into structured `items` (name + grams).
+
+```bash
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  'https://api.earentir.dev/health/v1/gaps?limit=20' | jq '{food_count, item_count, foods: .foods[0:5], items: .items[0:5]}'
+
+curl -sS -X POST https://api.earentir.dev/health/v1/fill \
+  -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' -H 'Content-Type: application/json' \
+  -d '{"foods":[{"name":"Perch","kcal_per_100g":70,"sodium_mg_per_100g":70},{"name":"Roasted bell pepper","kcal_per_100g":30,"sodium_mg_per_100g":3}],"recompute_days":["2026-11-11"]}' | jq '.recomputed, .gaps_remaining.item_count'
+```
 
 ```bash
 curl -sS https://api.earentir.dev/health/v1/help | jq '.'
+curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
+  https://api.earentir.dev/health/v1/overview | jq '{today, food_count, latest_weight}'
+
+curl -sS -X POST https://api.earentir.dev/health/v1/log \
+  -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' -H 'Content-Type: application/json' \
+  -d '{"date":"2026-11-11","kcal_margin":0.10,"meals":[{"slot":"lunch","replace":true,"items":[{"name":"Pasta (cooked, no salt)","grams":120}]}],"weight":{"kg":142.5,"protocol":true}}' | jq '.day.totals'
 
 # Weight
 curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
@@ -732,10 +751,13 @@ curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
   'https://api.earentir.dev/health/v1/days?from=2026-11-01&q=moussaka&slot=dinner' | jq '.count'
 curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
   https://api.earentir.dev/health/v1/days/2026-11-10 | jq '.day.totals'
-curl -sS -X POST https://api.earentir.dev/health/v1/days/2026-11-11/meals \
+# Preferred: one request per meal (server scales nutrients from catalog; can add new foods in the same body)
+curl -sS -X POST https://api.earentir.dev/health/v1/days/2026-11-11/meals/log \
   -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' -H 'Content-Type: application/json' \
   -d '{"slot":"lunch","items":[{"name":"Pasta (cooked, no salt)","grams":120}],"kcal_margin":0.10}' | jq '.'
 ```
+
+`POST .../meals/log` and `POST .../meals` accept optional `ensure_foods` (catalog upsert) and per-item `food_id`, `kcal_per_100g`, `sodium_mg_per_100g` for items not yet in the catalog. See `GET /health/v1/help`.
 
 Add `health.users` to `config/earapi.json` (see below). Default template uses username `pantazis` and token `change-me`.
 

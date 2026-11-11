@@ -264,6 +264,31 @@ const GROUPS = [
     ],
   },
   {
+    id: "health",
+    title: "Health",
+    description: "Eating tracker. UI at /health/ui/. Auth: X-User + X-API-Key. Prefer POST /log.",
+    endpoints: [
+      {
+        id: "health-help",
+        method: "GET",
+        path: "/health/v1/help",
+        summary: "Routes, LLM workflow, examples (no auth)",
+        params: [],
+      },
+      {
+        id: "health-overview",
+        method: "GET",
+        path: "/health/v1/overview",
+        summary: "Today, latest weight, recent days, food count",
+        params: [
+          { name: "days", value: "14", hint: "how many recent days" },
+          { name: "user", value: "pantazis" },
+          { name: "token", value: "", hint: "API token" },
+        ],
+      },
+    ],
+  },
+  {
     id: "jobs",
     title: "Jobs",
     description: "Progress for long IMDb fetches and Jellyfin scans (replace JOB_ID).",
