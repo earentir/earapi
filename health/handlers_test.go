@@ -106,7 +106,7 @@ func TestLogHTTP(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Day == nil || out.Day.Totals.Kcal != 200 {
+	if out.Day == nil || out.Day.Totals.Kcal != 220 {
 		t.Fatalf("%s", w.Body.String())
 	}
 	if out.Weight == nil || out.Weight.Kg != 80.5 {

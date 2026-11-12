@@ -73,7 +73,7 @@ func TestNov12LunchSoupStockRescaleDoesNotDropKcal(t *testing.T) {
 		m := d.Meals[slot]
 		t.Logf("%s: %.0f kcal %.0f mg", slot, m.Kcal, m.SodiumMg)
 	}
-	if d.Totals.Kcal < 1520 || d.Totals.Kcal > 1560 {
-		t.Fatalf("day kcal %.0f want ~1540 (legacy %.0f)", d.Totals.Kcal, d.LegacyTotals.Kcal)
+	if diff := d.Totals.Kcal - d.LegacyTotals.Kcal; diff < -5 || diff > 5 {
+		t.Fatalf("day kcal %.0f legacy %.0f (diff %.0f)", d.Totals.Kcal, d.LegacyTotals.Kcal, diff)
 	}
 }

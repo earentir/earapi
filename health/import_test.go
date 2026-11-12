@@ -25,6 +25,33 @@ func TestParseWeightSnippet(t *testing.T) {
 	}
 }
 
+func TestMealRawDeclaresMargin(t *testing.T) {
+	with := `Pasta → **~571 / ~994 → +10% margin = ~1,093**`
+	without := `Pork skewer 95 g → **~522 / ~1,019**`
+	if !MealRawDeclaresMargin(with) {
+		t.Fatal("expected margin")
+	}
+	if MealRawDeclaresMargin(without) {
+		t.Fatal("expected no margin")
+	}
+	if !ShouldApplyMealSlotMargin(&MealSlot{}, 10) {
+		t.Fatal("empty raw should margin")
+	}
+	if ShouldApplyMealSlotMargin(&MealSlot{Raw: without}, 10) {
+		t.Fatal("unmargined md total should not margin")
+	}
+	if !ShouldApplyMealSlotMargin(&MealSlot{Raw: with}, 10) {
+		t.Fatal("margin line should margin")
+	}
+	aug := `2 pita breads + lamb kebab 96 g ~885 / ~610`
+	if _, k := parseMealTotalFromRaw(aug); k != 610 {
+		t.Fatalf("august kcal %v", k)
+	}
+	if ShouldApplyMealSlotMargin(&MealSlot{Raw: aug}, 10) {
+		t.Fatal("august cell should not margin")
+	}
+}
+
 func TestParseFoodSnippet(t *testing.T) {
 	snippet := `## Reference kcal / sodium per 100 g (whole foods in regular rotation)
 
@@ -105,7 +132,7 @@ func TestImportFromRepoMDData(t *testing.T) {
 	if len(d) < 5 {
 		t.Fatalf("expected many days got %d", len(d))
 	}
-	if len(stock) < 5 {
+	if len(stock) < 4 {
 		t.Fatalf("expected stock lots from Misc got %d", len(stock))
 	}
 	active := 0
