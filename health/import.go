@@ -28,7 +28,7 @@ func ImportFromMDDir(dir string) ([]WeighIn, []Food, []Day, []StockLot, error) {
 
 	mpath := filepath.Join(dir, "Health Tracker - Misc.md")
 	if b, err := os.ReadFile(mpath); err == nil {
-		stock = parseStockMarkdown(string(b))
+		stock = filterStockLotsForImport(parseStockMarkdown(string(b)))
 	}
 
 	entries, _ := os.ReadDir(dir)

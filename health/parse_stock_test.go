@@ -13,9 +13,10 @@ func TestParseStockMarkdown_activeLots(t *testing.T) {
 	if err != nil {
 		t.Skip("mddata not present")
 	}
-	lots := parseStockMarkdown(string(b))
-	if len(lots) < 8 {
-		t.Fatalf("expected active stock lots, got %d", len(lots))
+	raw := parseStockMarkdown(string(b))
+	lots := filterStockLotsForImport(raw)
+	if len(lots) < 4 {
+		t.Fatalf("expected prep batch stock lots, got %d (raw %d)", len(lots), len(raw))
 	}
 	var active, depleted int
 	names := map[string]float64{}
@@ -29,14 +30,14 @@ func TestParseStockMarkdown_activeLots(t *testing.T) {
 			depleted++
 		}
 	}
-	if active < 7 {
-		t.Fatalf("expected several active lots, got %d", active)
+	if active < 4 {
+		t.Fatalf("expected several active prep lots, got %d", active)
+	}
+	if _, ok := names["Yogurt stock (Marata 1.7%)"]; ok {
+		t.Fatalf("yogurt pantry stock must not import: %v", names)
 	}
 	if names["Sole-tomato sauce (Oct 30 batch)"] < 300 || names["Sole-tomato sauce (Oct 30 batch)"] > 310 {
 		t.Fatalf("sole-tomato remaining: %v", names)
-	}
-	if yogurt, ok := names["Yogurt stock (Marata 1.7%)"]; !ok || yogurt < 590 || yogurt > 610 {
-		t.Fatalf("yogurt stock: %v", names)
 	}
 	if soup, ok := names["soup-tomato mix"]; !ok || soup < 330 || soup > 350 {
 		t.Fatalf("soup-tomato: %v", names)

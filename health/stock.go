@@ -125,6 +125,15 @@ func refreshStockLotNutrientsFromCatalog(lot *StockLot, catalog []Food) {
 	if lot == nil || lot.BatchGrams <= 0 {
 		return
 	}
+	if f, ok := BestFoodMatch(catalog, lot.Name); ok {
+		if kcal, sod := nutrientsForFood(f); kcal != nil {
+			lot.KcalPer100g = kcal
+			if sod != nil {
+				lot.SodiumMgPer100g = sod
+			}
+			return
+		}
+	}
 	if len(lot.Items) > 0 {
 		virtual := MealItem{Name: lot.Name, Grams: lot.BatchGrams, Parts: lot.Items}
 		_ = scaleDishWithCatalog(&virtual, catalog, nil)
