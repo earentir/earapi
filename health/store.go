@@ -54,8 +54,8 @@ func (s *Store) IsEmpty() bool {
 	return err != nil || ok
 }
 
-// ReplaceImported replaces all rows for this user.
-func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day, stock []StockLot) error {
+// ReplaceImported replaces all rows for this user. mdDir loads food aliases before scaling days.
+func (s *Store) ReplaceImported(mdDir string, weights []WeighIn, foods []Food, days []Day, stock []StockLot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existingStock, _ := s.listStockLotsUnlocked()
@@ -77,6 +77,7 @@ func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day, sto
 		`DELETE FROM weigh_ins WHERE user_id = ?`,
 		`DELETE FROM foods WHERE user_id = ?`,
 		`DELETE FROM stock_lots WHERE user_id = ?`,
+		`DELETE FROM food_aliases WHERE user_id = ?`,
 	} {
 		if _, err := tx.Exec(q, uid); err != nil {
 			return err
@@ -123,15 +124,20 @@ func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day, sto
 			}
 		}
 	}
+	aliasSpecs, _ := LoadFoodAliasesFromMDDir(mdDir)
+	aliasFoods := BuildAliasFoodMap(aliasSpecs, foods)
+	if err := s.applyFoodAliasesTx(tx, uid, foods, aliasSpecs); err != nil {
+		return err
+	}
 	for i := range days {
 		dd := days[i]
 		if dd.LegacyTotals.Kcal == 0 && dd.LegacyTotals.SodiumMg == 0 &&
 			(dd.Totals.Kcal > 0 || dd.Totals.SodiumMg > 0) {
 			dd.LegacyTotals = dd.Totals
 		}
-		ScaleDayMealsFromCatalog(&dd, foods, stock)
-		RecomputeDayTotals(&dd)
-		if err := saveDayTxUser(tx, uid, &dd); err != nil {
+		ScaleDayMealsFromCatalog(&dd, foods, stock, aliasFoods)
+		RecomputeDayTotalsWithMargin(&dd, DefaultMealMarginPercent)
+		if err := saveDayTxUser(tx, uid, &dd, DefaultMealMarginPercent); err != nil {
 			return err
 		}
 	}
@@ -167,11 +173,11 @@ func (s *Store) preserveLegacyTotalsLocked(d *Day) {
 	}
 }
 
-func saveDayTxUser(tx *sql.Tx, userID string, d *Day) error {
+func saveDayTxUser(tx *sql.Tx, userID string, d *Day, marginPercent float64) error {
 	if d.Meals == nil {
 		d.Meals = map[string]MealSlot{}
 	}
-	RecomputeDayTotals(d)
+	RecomputeDayTotalsWithMargin(d, marginPercent)
 	_, err := tx.Exec(`INSERT INTO days (user_id, date, bp, walking, total_sodium_mg, total_kcal, legacy_total_sodium_mg, legacy_total_kcal)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, date) DO UPDATE SET
@@ -203,7 +209,7 @@ func saveDayTxUser(tx *sql.Tx, userID string, d *Day) error {
 
 func (s *Store) saveDayTx(tx *sql.Tx, d *Day) error {
 	s.preserveLegacyTotalsLocked(d)
-	return saveDayTxUser(tx, s.userID, d)
+	return saveDayTxUser(tx, s.userID, d, s.mealMarginPercentUnlocked())
 }
 
 // --- weight ---
@@ -724,12 +730,7 @@ func (s *Store) GetDay(date string) (*Day, bool) {
 		_ = s.saveDayLocked(&dd)
 		return &dd, true
 	}
-	s.scaleMealSlotsLenient(&dd)
-	for slot, m := range dd.Meals {
-		RecomputeMealSlotTotalsFromItems(&m)
-		dd.Meals[slot] = m
-	}
-	RecomputeDayTotals(&dd)
+	s.enrichDayTotalsUnlocked(&dd)
 	return &dd, true
 }
 
@@ -918,20 +919,46 @@ func (s *Store) listStockLotsUnlocked() ([]StockLot, error) {
 	return scanStockLots(rows)
 }
 
-// RecomputeDayTotals sums meal slots into day totals.
+// RecomputeDayTotals sums meal slots with default meal margin (+10%).
 func RecomputeDayTotals(d *Day) {
+	RecomputeDayTotalsWithMargin(d, DefaultMealMarginPercent)
+}
+
+// RecomputeDayTotalsWithMargin sums catalog item lines per slot, applies +margin on each slot, then day total.
+func RecomputeDayTotalsWithMargin(d *Day, marginPercent float64) {
+	if d == nil {
+		return
+	}
 	var sod, kc float64
 	for _, slot := range []string{"lunch", "dinner", "snack"} {
 		m, ok := d.Meals[slot]
 		if !ok {
 			continue
 		}
-		FinalizeMealTotals(&m)
+		if len(m.Items) > 0 {
+			RecomputeMealSlotTotalsFromItems(&m)
+		} else {
+			FinalizeMealTotals(&m)
+		}
+		ApplyMealSlotMargin(&m, marginPercent)
 		d.Meals[slot] = m
 		sod += m.SodiumMg
 		kc += m.Kcal
 	}
 	d.Totals = DayTotals{SodiumMg: sod, Kcal: kc}
+}
+
+func (s *Store) mealMarginPercentUnlocked() float64 {
+	return s.GetKcalBudgetSettings().MealMarginPercent
+}
+
+// enrichDayTotalsUnlocked rescales items, applies meal margin, and refreshes slot + day totals.
+func (s *Store) enrichDayTotalsUnlocked(d *Day) {
+	if d == nil {
+		return
+	}
+	s.scaleMealSlotsLenient(d)
+	RecomputeDayTotalsWithMargin(d, s.mealMarginPercentUnlocked())
 }
 
 func todayAthens() string {
@@ -994,6 +1021,7 @@ func (s *Store) FilterDays(from, to, exactDate, q, slot string, limit int) []Day
 		} else if q != "" && !dayMatchesQuery(d, q) {
 			continue
 		}
+		s.enrichDayTotalsUnlocked(d)
 		out = append(out, *d)
 		if limit > 0 && len(out) >= limit {
 			break
@@ -1117,14 +1145,14 @@ func (s *Store) scaleDishUnlocked(it *MealItem, active map[string]bool) error {
 	return nil
 }
 
-func scaleItemFromFoodWithCatalog(it *MealItem, catalog []Food) error {
+func scaleItemFromFoodWithCatalog(it *MealItem, catalog []Food, byAlias map[string]Food) error {
 	if len(it.Parts) > 0 {
-		return scaleDishWithCatalog(it, catalog)
+		return scaleDishWithCatalog(it, catalog, byAlias)
 	}
 	if it.Grams <= 0 {
 		return nil
 	}
-	f, ok := BestFoodMatch(catalog, it.Name)
+	f, ok := foodForMealLine(it.Name, catalog, byAlias)
 	if !ok || f == nil {
 		return nil
 	}
@@ -1144,14 +1172,14 @@ func scaleItemFromFoodWithCatalog(it *MealItem, catalog []Food) error {
 	return nil
 }
 
-func scaleDishWithCatalog(it *MealItem, catalog []Food) error {
+func scaleDishWithCatalog(it *MealItem, catalog []Food, byAlias map[string]Food) error {
 	var batch, k, n float64
 	for i := range it.Parts {
 		p := &it.Parts[i]
 		if strings.TrimSpace(p.Name) == "" {
 			continue
 		}
-		_ = scaleItemFromFoodWithCatalog(p, catalog)
+		_ = scaleItemFromFoodWithCatalog(p, catalog, byAlias)
 		batch += p.Grams
 		k += p.Kcal
 		n += p.SodiumMg

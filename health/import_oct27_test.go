@@ -30,7 +30,7 @@ func TestOct27SnackNotDayTotal(t *testing.T) {
 	if DayHasMisplacedDayTotalInMeals(d) {
 		t.Fatalf("snack raw still has day total: %q", snack.Raw)
 	}
-	ScaleDayMealsFromCatalog(d, foods, stock)
+	ScaleDayMealsFromCatalog(d, foods, stock, aliasFoodsFromMDDir(dir, foods))
 	RecomputeDayTotals(d)
 	if d.Totals.Kcal > 1200 {
 		t.Fatalf("day kcal should be catalog sum not markdown day column, got %v", d.Totals.Kcal)

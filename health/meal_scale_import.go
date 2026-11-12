@@ -1,13 +1,13 @@
 package health
 
 // ScaleDayMealsFromCatalog links food_id and fills line kcal/sodium from Foods + Stock during markdown import.
-func ScaleDayMealsFromCatalog(d *Day, foods []Food, stock []StockLot) {
+func ScaleDayMealsFromCatalog(d *Day, foods []Food, stock []StockLot, aliasFoods map[string]Food) {
 	if d == nil {
 		return
 	}
 	clearDayItemMacros(d)
 	for slot, m := range d.Meals {
-		ScaleMealSlotFromCatalog(&m, foods, stock)
+		ScaleMealSlotFromCatalog(&m, foods, stock, aliasFoods)
 		RecomputeMealSlotTotalsFromItems(&m)
 		d.Meals[slot] = m
 	}
@@ -49,25 +49,25 @@ func RecomputeMealSlotTotalsFromItems(meal *MealSlot) {
 	meal.KcalMargin = 0
 }
 
-func ScaleMealSlotFromCatalog(meal *MealSlot, foods []Food, stock []StockLot) {
+func ScaleMealSlotFromCatalog(meal *MealSlot, foods []Food, stock []StockLot, aliasFoods map[string]Food) {
 	if meal == nil {
 		return
 	}
 	for i := range meal.Items {
-		scaleItemImport(&meal.Items[i], foods, stock)
+		scaleItemImport(&meal.Items[i], foods, stock, aliasFoods)
 	}
 	FinalizeMealTotals(meal)
 }
 
-func scaleItemImport(it *MealItem, foods []Food, stock []StockLot) {
+func scaleItemImport(it *MealItem, foods []Food, stock []StockLot, aliasFoods map[string]Food) {
 	if it == nil {
 		return
 	}
 	if len(it.Parts) > 0 {
 		for i := range it.Parts {
-			scaleItemImport(&it.Parts[i], foods, stock)
+			scaleItemImport(&it.Parts[i], foods, stock, aliasFoods)
 		}
-		_ = scaleDishWithCatalog(it, foods)
+		_ = scaleDishWithCatalog(it, foods, aliasFoods)
 		return
 	}
 	if it.Grams <= 0 {
@@ -79,7 +79,7 @@ func scaleItemImport(it *MealItem, foods []Food, stock []StockLot) {
 	if scaleImportItemFromStock(it, stock) {
 		return
 	}
-	_ = scaleItemFromFoodWithCatalog(it, foods)
+	_ = scaleItemFromFoodWithCatalog(it, foods, aliasFoods)
 }
 
 func scaleImportItemFromStock(it *MealItem, lots []StockLot) bool {

@@ -62,7 +62,7 @@ type DayTotals struct {
 type Day struct {
 	Date         string              `json:"date"`
 	Meals        map[string]MealSlot `json:"meals"`
-	Totals       DayTotals           `json:"totals"`                  // summed from items (catalog/stock)
+	Totals       DayTotals           `json:"totals"`                  // summed meal slots after catalog + meal margin
 	LegacyTotals DayTotals           `json:"legacy_totals,omitempty"` // markdown day column; UI hover only
 	BP           string              `json:"bp,omitempty"`
 	Walking      string              `json:"walking,omitempty"`

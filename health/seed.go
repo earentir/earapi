@@ -27,7 +27,10 @@ func ImportMarkdownForUser(dataRoot, mdDir, username string) (map[string]int, er
 		return nil, fmt.Errorf("no data found in %s", mdDir)
 	}
 	fmt.Fprintf(os.Stderr, "health: writing DB (%d days, %d stock lots) …\n", len(d), len(stock))
-	if err := st.ReplaceImported(w, f, d, stock); err != nil {
+	if err := st.ReplaceImported(mdDir, w, f, d, stock); err != nil {
+		return nil, err
+	}
+	if _, err := st.ApplyFoodAliasesFromMD(mdDir, f); err != nil {
 		return nil, err
 	}
 	return map[string]int{

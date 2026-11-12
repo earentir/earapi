@@ -22,7 +22,7 @@ func TestImportScalesFytroAndEVOOOnNov12(t *testing.T) {
 	if d == nil {
 		t.Fatal("no nov 12")
 	}
-	ScaleDayMealsFromCatalog(d, foods, stock)
+	ScaleDayMealsFromCatalog(d, foods, stock, aliasFoodsFromMDDir(dir, foods))
 	var fytroNa, evooK float64
 	var foundF, foundE bool
 	var walk func([]MealItem)

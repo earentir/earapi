@@ -127,7 +127,7 @@ func refreshStockLotNutrientsFromCatalog(lot *StockLot, catalog []Food) {
 	}
 	if len(lot.Items) > 0 {
 		virtual := MealItem{Name: lot.Name, Grams: lot.BatchGrams, Parts: lot.Items}
-		_ = scaleDishWithCatalog(&virtual, catalog)
+		_ = scaleDishWithCatalog(&virtual, catalog, nil)
 		k := virtual.Kcal / lot.BatchGrams * 100
 		n := virtual.SodiumMg / lot.BatchGrams * 100
 		lot.KcalPer100g = &k

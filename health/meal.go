@@ -2,8 +2,23 @@ package health
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
+
+// ApplyMealSlotMargin scales slot kcal/sodium by +marginPercent (e.g. 10 => multiply by 1.1).
+func ApplyMealSlotMargin(meal *MealSlot, marginPercent float64) {
+	if meal == nil || marginPercent <= 0 {
+		return
+	}
+	f := 1 + marginPercent/100
+	if meal.Kcal > 0 {
+		meal.Kcal = math.Round(meal.Kcal * f)
+	}
+	if meal.SodiumMg > 0 {
+		meal.SodiumMg = math.Round(meal.SodiumMg * f)
+	}
+}
 
 // FinalizeMealTotals fills slot sodium/kcal from items when not supplied.
 func FinalizeMealTotals(meal *MealSlot) {

@@ -70,7 +70,7 @@ func rebuildDayMealsFromRaw(d *Day, foods []Food, stock []StockLot) bool {
 		d.Meals[slot] = m
 	}
 	clearDayItemMacros(d)
-	ScaleDayMealsFromCatalog(d, foods, stock)
+	ScaleDayMealsFromCatalog(d, foods, stock, nil)
 	RecomputeDayTotals(d)
 	return true
 }

@@ -46,7 +46,7 @@ func TestImportScalesItemsNotLegacyLines(t *testing.T) {
 			break
 		}
 	}
-	ScaleDayMealsFromCatalog(d, foods, stock)
+	ScaleDayMealsFromCatalog(d, foods, stock, aliasFoodsFromMDDir(dir, foods))
 	RecomputeDayTotals(d)
 	var walk func([]MealItem)
 	var catalogLines int

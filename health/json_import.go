@@ -79,7 +79,7 @@ func (s *Store) ImportBundle(bundle JSONBundle, merge bool) (map[string]int, err
 	if merge {
 		return s.mergeBundle(bundle)
 	}
-	if err := s.ReplaceImported(bundle.Weights, bundle.Foods, bundle.Days, bundle.Stock); err != nil {
+	if err := s.ReplaceImported("", bundle.Weights, bundle.Foods, bundle.Days, bundle.Stock); err != nil {
 		return nil, err
 	}
 	return map[string]int{

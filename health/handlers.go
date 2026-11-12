@@ -107,7 +107,7 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"PUT /health/v1/foods/:id",
 			"DELETE /health/v1/foods/:id",
 			"GET /health/v1/settings",
-			"PUT /health/v1/settings  (body: soft_low_kcal, soft_high_kcal, gain_min_kcal)",
+			"PUT /health/v1/settings  (body: soft_low_kcal, soft_high_kcal, gain_min_kcal, meal_margin_percent)",
 			"GET /health/v1/stock?active=1",
 			"GET /health/v1/stock/:id",
 			"POST /health/v1/stock",
@@ -888,7 +888,7 @@ func (s *Service) handleImportMarkdown(c *gin.Context) {
 		return
 	}
 	if replace {
-		if err := st.ReplaceImported(w, f, d, stock); err != nil {
+		if err := st.ReplaceImported(s.Config.MDDataDir, w, f, d, stock); err != nil {
 			writeStoreErr(c, err)
 			return
 		}
@@ -898,6 +898,10 @@ func (s *Service) handleImportMarkdown(c *gin.Context) {
 			writeStoreErr(c, err)
 			return
 		}
+	}
+	if _, err := st.ApplyFoodAliasesFromMD(s.Config.MDDataDir, f); err != nil {
+		writeStoreErr(c, err)
+		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"imported": map[string]int{

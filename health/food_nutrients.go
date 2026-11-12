@@ -35,6 +35,12 @@ func nutrientsForFood(f *Food) (kcal, sod *float64) {
 	if f == nil {
 		return nil, nil
 	}
+	if isFytroFood(f) {
+		z := 0.0
+		// ~120 mg Na per 1 g weighed on plate (see Food Data notes).
+		sodPer100 := 12000.0
+		return &z, &sodPer100
+	}
 	kcal, sod = f.KcalPer100g, f.SodiumMgPer100g
 	nk, ns := parseNutrientsFromNotes(f.Notes)
 	if kcal == nil {

@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS user_settings (
 	user_id TEXT NOT NULL PRIMARY KEY,
 	soft_low_kcal REAL NOT NULL DEFAULT 1500,
 	soft_high_kcal REAL NOT NULL DEFAULT 1700,
-	gain_min_kcal REAL NOT NULL DEFAULT 2200
+	gain_min_kcal REAL NOT NULL DEFAULT 2200,
+	meal_margin_percent REAL NOT NULL DEFAULT 10
 );
 `
 
@@ -137,6 +138,11 @@ func migrateHealthDB(db *sql.DB) error {
 	}
 	if !tableHasColumn(db, "days", "legacy_total_kcal") {
 		if _, err := db.Exec(`ALTER TABLE days ADD COLUMN legacy_total_kcal REAL NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	if !tableHasColumn(db, "user_settings", "meal_margin_percent") {
+		if _, err := db.Exec(`ALTER TABLE user_settings ADD COLUMN meal_margin_percent REAL NOT NULL DEFAULT 10`); err != nil {
 			return err
 		}
 	}
