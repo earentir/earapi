@@ -48,6 +48,8 @@ type MealSlotRef struct {
 // NutritionFillResult summarizes POST /health/v1/fill.
 type NutritionFillResult struct {
 	FoodsEnsured []Food        `json:"foods_ensured"`
+	FoodsCreated []Food        `json:"foods_created,omitempty"`
+	Reply        string        `json:"reply,omitempty"`
 	Recomputed   []MealSlotRef `json:"recomputed"`
 	Gaps         NutritionGaps `json:"gaps_remaining"`
 }
@@ -133,28 +135,38 @@ func (s *Store) ListNutritionGaps(from, to string, itemLimit int) NutritionGaps 
 			if !ok {
 				continue
 			}
-			if len(m.Items) == 0 && strings.TrimSpace(m.Raw) != "" {
-				if parsed := ParseMealItemsFromRaw(m.Raw); len(parsed) > 0 {
+			if MealItemsNeedReparse(m.Items, m.Raw) {
+				if parsed := ParseMealStructureFromRaw(m.Raw); len(parsed) > 0 {
 					m.Items = parsed
 				}
 			}
-			for i, it := range m.Items {
-				if !s.itemNeedsNutrition(it, foods) {
-					continue
+			var walk func(items []MealItem, prefix string)
+			walk = func(items []MealItem, prefix string) {
+				for i, it := range items {
+					ref := fmt.Sprintf("%s/%s/%d", d.Date, slot, i)
+					if prefix != "" {
+						ref = prefix + "/" + fmt.Sprint(i)
+					}
+					if len(it.Parts) > 0 {
+						walk(it.Parts, ref)
+						continue
+					}
+					if !s.itemNeedsNutrition(it, foods) {
+						continue
+					}
+					out.Items = append(out.Items, ItemGap{
+						Ref: ref, Date: d.Date, Slot: slot, Index: i,
+						Name: it.Name, Grams: it.Grams, Note: strings.TrimSpace(it.Note),
+					})
+					if len(out.Items) >= itemLimit {
+						return
+					}
 				}
-				out.Items = append(out.Items, ItemGap{
-					Ref:   fmt.Sprintf("%s/%s/%d", d.Date, slot, i),
-					Date:  d.Date,
-					Slot:  slot,
-					Index: i,
-					Name:  it.Name,
-					Grams: it.Grams,
-					Note:  strings.TrimSpace(it.Note),
-				})
-				if len(out.Items) >= itemLimit {
-					out.ItemCount = len(out.Items)
-					return out
-				}
+			}
+			walk(m.Items, "")
+			if len(out.Items) >= itemLimit {
+				out.ItemCount = len(out.Items)
+				return out
 			}
 		}
 	}
@@ -172,14 +184,18 @@ func parseISODate(s string) (time.Time, error) {
 
 func (s *Store) ApplyNutritionFill(req NutritionFill) (*NutritionFillResult, error) {
 	ensured := make([]Food, 0, len(req.Foods))
+	var created []Food
 	names := map[string]bool{}
 	for _, f := range req.Foods {
-		got, err := s.EnsureFood(f)
+		got, isNew, err := s.EnsureFood(f)
 		if err != nil {
 			return nil, err
 		}
 		ensured = append(ensured, got)
 		names[strings.ToLower(strings.TrimSpace(got.Name))] = true
+		if isNew {
+			created = append(created, got)
+		}
 	}
 
 	slots := append([]MealSlotRef(nil), req.RecomputeSlots...)
@@ -212,11 +228,16 @@ func (s *Store) ApplyNutritionFill(req NutritionFill) (*NutritionFillResult, err
 	}
 
 	gaps := s.ListNutritionGaps("", "", 100)
-	return &NutritionFillResult{
+	out := &NutritionFillResult{
 		FoodsEnsured: ensured,
 		Recomputed:   recomputed,
 		Gaps:         gaps,
-	}, nil
+	}
+	if len(created) > 0 {
+		out.FoodsCreated = dedupeFoodsByID(created)
+		out.Reply = FormatFoodsCreatedReply(out.FoodsCreated)
+	}
+	return out, nil
 }
 
 func (s *Store) slotsReferencingFoodNames(names map[string]bool, from, to string) []MealSlotRef {
@@ -276,9 +297,9 @@ func (s *Store) recomputeMealSlot(date, slot string) error {
 		return ErrNotFound
 	}
 	if len(m.Items) == 0 && strings.TrimSpace(m.Raw) != "" {
-		m.Items = ParseMealItemsFromRaw(m.Raw)
+		m.Items = ParseMealStructureFromRaw(m.Raw)
 	}
-	if err := s.PrepareMealSlot(&m, nil); err != nil {
+	if _, err := s.PrepareMealSlot(&m, nil); err != nil {
 		return err
 	}
 	d.Meals[slot] = m

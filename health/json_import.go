@@ -17,9 +17,10 @@ func loadLegacyJSONBundle(dir string) (JSONBundle, error) {
 
 // JSONBundle is a single-file export/import format.
 type JSONBundle struct {
-	Weights []WeighIn `json:"weights"`
-	Foods   []Food    `json:"foods"`
-	Days    []Day     `json:"days"`
+	Weights []WeighIn  `json:"weights"`
+	Foods   []Food     `json:"foods"`
+	Days    []Day      `json:"days"`
+	Stock   []StockLot `json:"stock,omitempty"`
 }
 
 // LoadJSONBundleFromDir reads weight.json, foods.json, and days/*.json from dir.
@@ -78,13 +79,14 @@ func (s *Store) ImportBundle(bundle JSONBundle, merge bool) (map[string]int, err
 	if merge {
 		return s.mergeBundle(bundle)
 	}
-	if err := s.ReplaceImported(bundle.Weights, bundle.Foods, bundle.Days); err != nil {
+	if err := s.ReplaceImported(bundle.Weights, bundle.Foods, bundle.Days, bundle.Stock); err != nil {
 		return nil, err
 	}
 	return map[string]int{
 		"weights": len(bundle.Weights),
 		"foods":   len(bundle.Foods),
 		"days":    len(bundle.Days),
+		"stock":   len(bundle.Stock),
 	}, nil
 }
 

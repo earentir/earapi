@@ -9,11 +9,12 @@ import (
 	"strings"
 )
 
-// ImportFromMDDir loads weight, foods, and monthly day logs from mddata/.
-func ImportFromMDDir(dir string) ([]WeighIn, []Food, []Day, error) {
+// ImportFromMDDir loads weight, foods, stock lots, and monthly day logs from mddata/.
+func ImportFromMDDir(dir string) ([]WeighIn, []Food, []Day, []StockLot, error) {
 	var weights []WeighIn
 	var foods []Food
 	var days []Day
+	var stock []StockLot
 
 	wpath := filepath.Join(dir, "Health Tracker - Weight.md")
 	if b, err := os.ReadFile(wpath); err == nil {
@@ -22,7 +23,12 @@ func ImportFromMDDir(dir string) ([]WeighIn, []Food, []Day, error) {
 
 	fpath := filepath.Join(dir, "Health Tracker - Food Data.md")
 	if b, err := os.ReadFile(fpath); err == nil {
-		foods = parseFoodMarkdown(string(b))
+		foods = filterStockFromFoods(parseFoodMarkdown(string(b)))
+	}
+
+	mpath := filepath.Join(dir, "Health Tracker - Misc.md")
+	if b, err := os.ReadFile(mpath); err == nil {
+		stock = parseStockMarkdown(string(b))
 	}
 
 	entries, _ := os.ReadDir(dir)
@@ -41,7 +47,7 @@ func ImportFromMDDir(dir string) ([]WeighIn, []Food, []Day, error) {
 		}
 		days = append(days, parseMonthMarkdown(string(b), year)...)
 	}
-	return weights, foods, days, nil
+	return weights, foods, days, stock, nil
 }
 
 func extractYearFromMonthFilename(name string) int {
@@ -97,7 +103,7 @@ func parseWeightMarkdown(content string, defaultYear int) []WeighIn {
 		id := fmt.Sprintf("w_%s_%d", iso, dayCount[iso])
 		w := WeighIn{ID: id, Date: iso, Kg: kg, RHRBpm: rhr, Note: note, Protocol: protocol, KgRaw: kgRaw}
 		if kg == 0 && kgRaw != "" {
-			w.Note = strings.TrimSpace(kgRaw + " · " + note)
+			w.Note = strings.TrimSpace(kgRaw + ", " + note)
 		}
 		out = append(out, w)
 	}
@@ -106,7 +112,7 @@ func parseWeightMarkdown(content string, defaultYear int) []WeighIn {
 
 func parseKgCell(s string) (float64, string) {
 	s = strings.TrimSpace(s)
-	if s == "" || s == "—" || s == "-" {
+	if s == "" || s == "-" || s == "\u2014" {
 		return 0, s
 	}
 	// first number in cell
@@ -127,7 +133,7 @@ func parseKgCell(s string) (float64, string) {
 
 func parseRHR(s string) *int {
 	s = strings.TrimSpace(s)
-	if s == "" || s == "—" || s == "-" {
+	if s == "" || s == "-" || s == "\u2014" {
 		return nil
 	}
 	re := regexp.MustCompile(`(\d+)`)
@@ -207,7 +213,7 @@ func parseFoodMarkdown(content string) []Food {
 		// bullet lines as note-only foods
 		if strings.HasPrefix(line, "- ") && !strings.HasPrefix(line, "- |") {
 			text := strings.TrimPrefix(line, "- ")
-			if len(text) < 8 {
+			if len(text) < 8 || skipFoodBulletForCatalog(text) {
 				continue
 			}
 			name := text
@@ -216,12 +222,14 @@ func parseFoodMarkdown(content string) []Food {
 			} else if idx := strings.Index(text, " ("); idx > 0 && idx < 60 {
 				name = strings.TrimSpace(text[:idx])
 			}
+			name = cleanFoodDisplayName(name)
 			if len(name) > 80 {
 				name = name[:80]
 			}
 			id := UniqueSlug(name, taken)
 			taken[id] = true
-			out = append(out, Food{ID: id, Name: name, Notes: text})
+			kcal, sod := parseNutrientsFromNotes(text)
+			out = append(out, Food{ID: id, Name: name, Notes: text, KcalPer100g: kcal, SodiumMgPer100g: sod})
 		}
 	}
 	return out
@@ -229,7 +237,7 @@ func parseFoodMarkdown(content string) []Food {
 
 func parseApproxNumber(s string) *float64 {
 	s = strings.TrimSpace(s)
-	if s == "" || s == "—" || s == "-" {
+	if s == "" || s == "-" || s == "\u2014" {
 		return nil
 	}
 	re := regexp.MustCompile(`(\d+(?:\.\d+)?)`)
@@ -384,7 +392,7 @@ func putExtraMealRaw(d *Day, raw string) {
 		}
 	}
 	m := d.Meals["snack"]
-	m.Raw = strings.TrimSpace(m.Raw + " · " + raw)
+	m.Raw = strings.TrimSpace(m.Raw + " + " + raw)
 	d.Meals["snack"] = m
 }
 
@@ -401,8 +409,8 @@ func hydrateDayFromRaw(d *Day) {
 			m.SodiumMg = sod
 			m.Kcal = kc
 		}
-		if len(m.Items) == 0 && strings.TrimSpace(m.Raw) != "" {
-			if parsed := ParseMealItemsFromRaw(m.Raw); len(parsed) > 0 {
+		if strings.TrimSpace(m.Raw) != "" && MealItemsNeedReparse(m.Items, m.Raw) {
+			if parsed := ParseMealStructureFromRaw(m.Raw); len(parsed) > 0 {
 				m.Items = parsed
 			}
 		}

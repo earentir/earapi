@@ -110,12 +110,12 @@ func TestFoodsBatchAndWeightUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	k := 50.0
-	got, err := st.EnsureFood(Food{Name: "Apple", KcalPer100g: &k})
+	got, _, err := st.EnsureFood(Food{Name: "Apple", KcalPer100g: &k})
 	if err != nil {
 		t.Fatal(err)
 	}
 	k2 := 52.0
-	got, err = st.EnsureFood(Food{ID: got.ID, KcalPer100g: &k2})
+	got, _, err = st.EnsureFood(Food{ID: got.ID, KcalPer100g: &k2})
 	if err != nil {
 		t.Fatal(err)
 	}

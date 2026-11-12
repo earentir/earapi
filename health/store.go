@@ -55,9 +55,15 @@ func (s *Store) IsEmpty() bool {
 }
 
 // ReplaceImported replaces all rows for this user.
-func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day) error {
+func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day, stock []StockLot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	existingStock, _ := s.listStockLotsUnlocked()
+	movSnap, _ := s.listAllStockMovementsUnlocked()
+	stock = mergeImportedStockWithDB(existingStock, stock)
+	for i := range stock {
+		refreshStockLotNutrientsFromCatalog(&stock[i], foods)
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -70,6 +76,7 @@ func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day) err
 		`DELETE FROM days WHERE user_id = ?`,
 		`DELETE FROM weigh_ins WHERE user_id = ?`,
 		`DELETE FROM foods WHERE user_id = ?`,
+		`DELETE FROM stock_lots WHERE user_id = ?`,
 	} {
 		if _, err := tx.Exec(q, uid); err != nil {
 			return err
@@ -92,6 +99,30 @@ func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day) err
 			return err
 		}
 	}
+	for _, lot := range stock {
+		if err := insertStockLotUser(tx, uid, lot); err != nil {
+			return err
+		}
+		if prev, ok := movSnap[lot.ID]; ok && len(prev) > 0 {
+			for _, m := range prev {
+				if err := insertStockMovementUser(tx, uid, m); err != nil {
+					return err
+				}
+			}
+		} else if used := lot.BatchGrams - lot.RemainingGrams; used > 0.01 {
+			m := StockMovement{
+				LotID:     lot.ID,
+				CreatedAt: time.Now().UTC().Format(time.RFC3339),
+				Grams:     used,
+				Kind:      "import",
+				Note:      "Used before ledger (Misc / import)",
+			}
+			m.ID = UniqueSlug(lot.ID+"-import", map[string]bool{})
+			if err := insertStockMovementUser(tx, uid, m); err != nil {
+				return err
+			}
+		}
+	}
 	for _, d := range days {
 		dd := d
 		RecomputeDayTotals(&dd)
@@ -99,7 +130,13 @@ func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day) err
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, lot := range stock {
+		_ = s.recomputeStockRemainingFromLedgerUnlocked(lot.ID)
+	}
+	return nil
 }
 
 func nullFloat(p *float64) any {
@@ -312,6 +349,10 @@ func boolInt(v bool) int {
 func (s *Store) ListFoods() []Food {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.listFoodsUnlocked()
+}
+
+func (s *Store) listFoodsUnlocked() []Food {
 	rows, err := s.db.Query(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes FROM foods WHERE user_id = ? ORDER BY name`, s.userID)
 	if err != nil {
 		return nil
@@ -354,8 +395,9 @@ func (s *Store) FoodByID(id string) (*Food, bool) {
 	return s.foodByIDUnlocked(id)
 }
 
-// EnsureFood creates a catalog food or updates per-100g fields when it already exists (by id or name).
-func (s *Store) EnsureFood(f Food) (Food, error) {
+// EnsureFood upserts a catalog food. When name is new, BestFoodMatch is tried before insert.
+// The bool is true only when a new DB row was created.
+func (s *Store) EnsureFood(f Food) (Food, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	name := strings.TrimSpace(f.Name)
@@ -363,35 +405,48 @@ func (s *Store) EnsureFood(f Food) (Food, error) {
 		if cur, ok := s.foodByIDUnlocked(f.ID); ok {
 			applyFoodPatch(cur, f)
 			if err := s.writeFoodUnlocked(*cur); err != nil {
-				return Food{}, err
+				return Food{}, false, err
 			}
-			return *cur, nil
+			return *cur, false, nil
 		}
 		if name == "" {
-			return Food{}, fmt.Errorf("%w: unknown food id %q and no name", ErrInvalidInput, f.ID)
+			return Food{}, false, fmt.Errorf("%w: unknown food id %q and no name", ErrInvalidInput, f.ID)
 		}
 	}
 	if name == "" {
-		return Food{}, fmt.Errorf("%w: name required", ErrInvalidInput)
+		return Food{}, false, fmt.Errorf("%w: name required", ErrInvalidInput)
 	}
 	var existingID string
 	err := s.db.QueryRow(`SELECT id FROM foods WHERE user_id = ? AND name = ? COLLATE NOCASE`, s.userID, name).Scan(&existingID)
 	if err == nil {
 		cur, ok := s.foodByIDUnlocked(existingID)
 		if !ok {
-			return Food{}, err
+			return Food{}, false, err
 		}
 		applyFoodPatch(cur, f)
 		if err := s.writeFoodUnlocked(*cur); err != nil {
-			return Food{}, err
+			return Food{}, false, err
 		}
-		return *cur, nil
+		return *cur, false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Food{}, err
+		return Food{}, false, err
+	}
+	if match, ok := BestFoodMatch(s.listFoodsUnlocked(), name); ok {
+		cur, ok := s.foodByIDUnlocked(match.ID)
+		if ok {
+			patch := f
+			patch.Name = ""
+			patch.ID = ""
+			applyFoodPatch(cur, patch)
+			if err := s.writeFoodUnlocked(*cur); err != nil {
+				return Food{}, false, err
+			}
+			return *cur, false, nil
+		}
 	}
 	if f.KcalPer100g == nil && f.SodiumMgPer100g == nil {
-		return Food{}, fmt.Errorf("%w: new food %q needs kcal_per_100g and/or sodium_mg_per_100g", ErrInvalidInput, name)
+		return Food{}, false, fmt.Errorf("%w: new food %q needs kcal_per_100g and/or sodium_mg_per_100g", ErrInvalidInput, name)
 	}
 	taken := map[string]bool{}
 	rows, _ := s.db.Query(`SELECT id FROM foods WHERE user_id = ?`, s.userID)
@@ -407,12 +462,12 @@ func (s *Store) EnsureFood(f Food) (Food, error) {
 	if f.ID == "" {
 		f.ID = UniqueSlug(name, taken)
 	} else if taken[f.ID] {
-		return Food{}, ErrConflict
+		return Food{}, false, ErrConflict
 	}
 	if err := insertFoodUser(s.db, s.userID, f); err != nil {
-		return Food{}, err
+		return Food{}, false, err
 	}
-	return f, nil
+	return f, true, nil
 }
 
 func applyFoodPatch(cur *Food, patch Food) {
@@ -568,10 +623,40 @@ func (s *Store) readDayUnlocked(date string) (*Day, bool) {
 	return &d, true
 }
 
+// scaleMealSlotsLenient fills item kcal/sodium from the food catalog when possible (read-only; errors ignored).
+func (s *Store) scaleMealSlotsLenient(d *Day) {
+	if d == nil || d.Meals == nil {
+		return
+	}
+	var scale func(*MealItem)
+	scale = func(it *MealItem) {
+		if len(it.Parts) > 0 {
+			for i := range it.Parts {
+				scale(&it.Parts[i])
+			}
+			_ = s.scaleDish(it)
+			return
+		}
+		_ = s.ScaleItemFromFood(it)
+	}
+	for slot, m := range d.Meals {
+		for i := range m.Items {
+			scale(&m.Items[i])
+		}
+		d.Meals[slot] = m
+	}
+}
+
 func (s *Store) GetDay(date string) (*Day, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.readDayUnlocked(date)
+	d, ok := s.readDayUnlocked(date)
+	s.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	dd := *d
+	s.scaleMealSlotsLenient(&dd)
+	return &dd, true
 }
 
 func (s *Store) ListDayDates() []string {
@@ -667,13 +752,17 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 	if !ok {
 		d = &Day{Date: date, Meals: map[string]MealSlot{}}
 	}
+	var oldItems []MealItem
+	if cur, exists := d.Meals[slot]; exists {
+		oldItems = append([]MealItem(nil), cur.Items...)
+	}
 	cur, exists := d.Meals[slot]
 	if replace || !exists {
 		d.Meals[slot] = meal
 	} else {
 		if meal.Raw != "" {
 			if cur.Raw != "" {
-				cur.Raw += " · " + meal.Raw
+				cur.Raw += " + " + meal.Raw
 			} else {
 				cur.Raw = meal.Raw
 			}
@@ -689,6 +778,10 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 			cur.KcalMargin = meal.KcalMargin
 		}
 		d.Meals[slot] = cur
+	}
+	mealAfter := d.Meals[slot]
+	if err := s.syncStockForMealSlotChange(date, slot, oldItems, mealAfter.Items); err != nil {
+		return nil, err
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -719,7 +812,14 @@ func (s *Store) DeleteMealSlot(date, slot string) (*Day, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
+	var oldItems []MealItem
+	if m, ok := d.Meals[slot]; ok {
+		oldItems = m.Items
+	}
 	delete(d.Meals, slot)
+	if err := s.syncStockForMealSlotChange(date, slot, oldItems, nil); err != nil {
+		return nil, err
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -732,6 +832,16 @@ func (s *Store) DeleteMealSlot(date, slot string) (*Day, error) {
 		return nil, err
 	}
 	return d, nil
+}
+
+func (s *Store) listStockLotsUnlocked() ([]StockLot, error) {
+	rows, err := s.db.Query(`SELECT id, name, prepared_date, batch_grams, remaining_grams, active, items_json, notes, kcal_per_100g, sodium_mg_per_100g
+		FROM stock_lots WHERE user_id = ? ORDER BY prepared_date DESC, name`, s.userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanStockLots(rows)
 }
 
 // RecomputeDayTotals sums meal slots into day totals.
@@ -851,8 +961,14 @@ func dayMatchesQuery(d *Day, q string) bool {
 }
 
 func (s *Store) ScaleItemFromFood(it *MealItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scaleItemFromFoodUnlocked(it)
+}
+
+func (s *Store) scaleItemFromFoodUnlocked(it *MealItem) error {
 	if len(it.Parts) > 0 {
-		return s.scaleDish(it)
+		return s.scaleDishUnlocked(it)
 	}
 	if it.Kcal > 0 && it.SodiumMg > 0 {
 		return nil
@@ -863,56 +979,126 @@ func (s *Store) ScaleItemFromFood(it *MealItem) error {
 	var f *Food
 	var ok bool
 	if it.FoodID != "" {
-		f, ok = s.FoodByID(it.FoodID)
+		f, ok = s.foodByIDUnlocked(it.FoodID)
 	} else {
-		foods := s.ListFoods()
-		f, ok = BestFoodMatch(foods, it.Name)
+		f, ok = BestFoodMatch(s.listFoodsUnlocked(), it.Name)
 	}
 	if !ok || f == nil {
-		return fmt.Errorf("%w: unknown food %q — use ensure_foods, item kcal_per_100g, or pass kcal/sodium_mg", ErrInvalidInput, it.Name)
+		return nil
+	}
+	if it.FoodID == "" {
+		it.FoodID = f.ID
 	}
 	if strings.TrimSpace(it.Name) == "" {
 		it.Name = f.Name
 	}
-	if f.KcalPer100g != nil && it.Kcal == 0 {
-		it.Kcal = *f.KcalPer100g * it.Grams / 100
+	kcal100, sod100 := nutrientsForFood(f)
+	if kcal100 != nil && it.Kcal == 0 {
+		it.Kcal = *kcal100 * it.Grams / 100
 	}
-	if f.SodiumMgPer100g != nil && it.SodiumMg == 0 {
-		it.SodiumMg = *f.SodiumMgPer100g * it.Grams / 100
-	}
-	if it.Kcal == 0 && it.SodiumMg == 0 {
-		return fmt.Errorf("%w: food %q has no per-100g data", ErrInvalidInput, it.Name)
+	if sod100 != nil && it.SodiumMg == 0 {
+		it.SodiumMg = *sod100 * it.Grams / 100
 	}
 	return nil
 }
 
 func (s *Store) scaleDish(it *MealItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scaleDishUnlocked(it)
+}
+
+func (s *Store) scaleDishUnlocked(it *MealItem) error {
 	var batch, k, n float64
 	for i := range it.Parts {
 		p := &it.Parts[i]
 		if strings.TrimSpace(p.Name) == "" {
 			continue
 		}
-		if err := s.ScaleItemFromFood(p); err != nil {
-			return err
-		}
+		_ = s.scaleItemFromFoodUnlocked(p)
 		batch += p.Grams
 		k += p.Kcal
 		n += p.SodiumMg
 	}
-	if it.Grams <= 0 {
+	// Grouping sets: total grams = sum of parts (full portion). Scale down only when eaten g
+	// is explicitly below batch (leftovers / partial plate).
+	factor := 1.0
+	if batch <= 0 {
+		it.Grams = 0
+		it.Kcal = 0
+		it.SodiumMg = 0
+		return nil
+	}
+	eaten := it.Grams
+	if eaten <= 0 || eaten >= batch-0.01 {
 		it.Grams = batch
+		factor = 1.0
+	} else {
+		factor = eaten / batch
+	}
+	it.Kcal = k * factor
+	it.SodiumMg = n * factor
+	return nil
+}
+
+func scaleItemFromFoodWithCatalog(it *MealItem, catalog []Food) error {
+	if len(it.Parts) > 0 {
+		return scaleDishWithCatalog(it, catalog)
+	}
+	if it.Kcal > 0 && it.SodiumMg > 0 {
+		return nil
+	}
+	if it.Grams <= 0 {
+		return nil
+	}
+	f, ok := BestFoodMatch(catalog, it.Name)
+	if !ok || f == nil {
+		return nil
+	}
+	if it.FoodID == "" {
+		it.FoodID = f.ID
+	}
+	if strings.TrimSpace(it.Name) == "" {
+		it.Name = f.Name
+	}
+	kcal100, sod100 := nutrientsForFood(f)
+	if kcal100 != nil && it.Kcal == 0 {
+		it.Kcal = *kcal100 * it.Grams / 100
+	}
+	if sod100 != nil && it.SodiumMg == 0 {
+		it.SodiumMg = *sod100 * it.Grams / 100
+	}
+	return nil
+}
+
+func scaleDishWithCatalog(it *MealItem, catalog []Food) error {
+	var batch, k, n float64
+	for i := range it.Parts {
+		p := &it.Parts[i]
+		if strings.TrimSpace(p.Name) == "" {
+			continue
+		}
+		_ = scaleItemFromFoodWithCatalog(p, catalog)
+		batch += p.Grams
+		k += p.Kcal
+		n += p.SodiumMg
 	}
 	factor := 1.0
-	if batch > 0 && it.Grams > 0 {
-		factor = it.Grams / batch
+	if batch <= 0 {
+		it.Grams = 0
+		it.Kcal = 0
+		it.SodiumMg = 0
+		return nil
 	}
-	if it.Kcal == 0 {
-		it.Kcal = k * factor
+	eaten := it.Grams
+	if eaten <= 0 || eaten >= batch-0.01 {
+		it.Grams = batch
+		factor = 1.0
+	} else {
+		factor = eaten / batch
 	}
-	if it.SodiumMg == 0 {
-		it.SodiumMg = n * factor
-	}
+	it.Kcal = k * factor
+	it.SodiumMg = n * factor
 	return nil
 }
 
@@ -939,5 +1125,21 @@ func insertFoodUser(exec sqlExec, userID string, f Food) error {
 	_, err := exec.Exec(`INSERT INTO foods (user_id, id, name, kcal_per_100g, sodium_mg_per_100g, notes)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		userID, f.ID, f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes)
+	return err
+}
+
+func insertStockLotUser(exec sqlExec, userID string, lot StockLot) error {
+	items, _ := json.Marshal(lot.Items)
+	if items == nil {
+		items = []byte("[]")
+	}
+	active := 0
+	if stockLotIsActive(lot) {
+		active = 1
+	}
+	_, err := exec.Exec(`INSERT INTO stock_lots (user_id, id, name, prepared_date, batch_grams, remaining_grams, active, items_json, notes, kcal_per_100g, sodium_mg_per_100g)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, lot.ID, lot.Name, nullStr(lot.PreparedDate), lot.BatchGrams, lot.RemainingGrams, active,
+		string(items), lot.Notes, nullFloat(lot.KcalPer100g), nullFloat(lot.SodiumMgPer100g))
 	return err
 }

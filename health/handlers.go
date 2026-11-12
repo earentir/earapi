@@ -54,6 +54,15 @@ func RegisterRoutes(r *gin.Engine, svc *Service) {
 		p.GET("/import/json/status", svc.handleImportJSONStatus)
 		p.POST("/import/json", svc.handleImportJSON)
 		p.POST("/import/markdown", svc.handleImportMarkdown)
+
+		p.GET("/stock", svc.handleStockList)
+		p.GET("/stock/:id", svc.handleStockGet)
+		p.POST("/stock", svc.handleStockCreate)
+		p.PUT("/stock/:id", svc.handleStockUpdate)
+		p.DELETE("/stock/:id", svc.handleStockDelete)
+		p.POST("/stock/:id/draw", svc.handleStockDraw)
+		p.POST("/stock/:id/adjust", svc.handleStockAdjust)
+		p.PATCH("/stock/:id/active", svc.handleStockActive)
 	}
 }
 
@@ -74,7 +83,7 @@ func (s *Service) handleHelp(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"auth":         "Send X-User and X-API-Key headers (or ?user=&token= on GET). Bearer token works with X-User.",
 		"ui":           "/health/ui/",
-		"llm_workflow": "GET /gaps once for rows missing per-100g or unscorable items (no kcal numbers in response). POST /fill with foods[] (batch EnsureFood) to upsert catalog and auto-recompute affected meals. POST /log for new eating. Items are name+grams or dishes with parts[]. Import/markdown splits + into structured items. Server computes kcal/sodium.",
+		"llm_workflow": "GET /gaps once for rows missing per-100g or unscorable items (no kcal numbers in response). POST /fill with foods[] (batch EnsureFood) to upsert catalog and auto-recompute affected meals. POST /log for new eating. Items are name+grams or dishes with parts[]. Import/markdown splits + into structured items. Server computes kcal/sodium. EnsureFood fuzzy-matches existing catalog names before insert; responses may include foods_created[] and reply when new rows were added (user should review Foods in the web UI).",
 		"routes": []string{
 			"GET /health/v1/help",
 			"GET /health/v1/overview?days=14",
@@ -92,6 +101,14 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"POST /health/v1/foods",
 			"PUT /health/v1/foods/:id",
 			"DELETE /health/v1/foods/:id",
+			"GET /health/v1/stock?active=1",
+			"GET /health/v1/stock/:id",
+			"POST /health/v1/stock",
+			"PUT /health/v1/stock/:id",
+			"DELETE /health/v1/stock/:id",
+			"POST /health/v1/stock/:id/draw  (body: date, slot, grams)",
+			"POST /health/v1/stock/:id/adjust  (body: grams, mode household|discarded — no meal log)",
+			"PATCH /health/v1/stock/:id/active  (body: {active: true|false})",
 			"GET /health/v1/days?from=&to=&date=&q=&slot=&limit=",
 			"GET /health/v1/days/:date",
 			"POST /health/v1/days",
@@ -377,7 +394,7 @@ func (s *Service) handleFoodsBatch(c *gin.Context) {
 	}
 	upserted := make([]Food, 0, len(body.Upsert))
 	for _, f := range body.Upsert {
-		out, err := st.EnsureFood(f)
+		out, _, err := st.EnsureFood(f)
 		if err != nil {
 			writeStoreErr(c, err)
 			return
@@ -452,7 +469,7 @@ func (s *Service) handleDayCreate(c *gin.Context) {
 			if cur, ok := existing.Meals[slot]; ok && !mealEmpty(cur) {
 				cur.Items = append(cur.Items, m.Items...)
 				if m.Raw != "" {
-					cur.Raw = strings.TrimSpace(cur.Raw + " · " + m.Raw)
+					cur.Raw = strings.TrimSpace(cur.Raw + " + " + m.Raw)
 				}
 				cur.SodiumMg += m.SodiumMg
 				cur.Kcal += m.Kcal
@@ -539,7 +556,7 @@ func (s *Service) handleDayPatch(c *gin.Context) {
 func (s *Store) prepareDayMeals(d *Day) error {
 	for slot, m := range d.Meals {
 		meal := m
-		if err := s.PrepareMealSlot(&meal, nil); err != nil {
+		if _, err := s.PrepareMealSlot(&meal, nil); err != nil {
 			return err
 		}
 		d.Meals[slot] = meal
@@ -569,7 +586,7 @@ func mealFromWriteBody(body mealWriteBody) (string, MealSlot, error) {
 	}
 	if body.Note != "" {
 		if meal.Raw != "" {
-			meal.Raw += " · " + body.Note
+			meal.Raw += " + " + body.Note
 		} else {
 			meal.Raw = body.Note
 		}
@@ -593,16 +610,8 @@ func (s *Service) handleDayMealLog(c *gin.Context) {
 		writeStoreErr(c, err)
 		return
 	}
-	ensured := make([]Food, 0, len(body.EnsureFoods))
-	for _, f := range body.EnsureFoods {
-		out, err := st.EnsureFood(f)
-		if err != nil {
-			writeStoreErr(c, err)
-			return
-		}
-		ensured = append(ensured, out)
-	}
-	if err := st.PrepareMealSlot(&meal, nil); err != nil {
+	ensured, created, err := st.ensureMealFoods(&meal, body.EnsureFoods)
+	if err != nil {
 		writeStoreErr(c, err)
 		return
 	}
@@ -614,6 +623,10 @@ func (s *Service) handleDayMealLog(c *gin.Context) {
 	resp := gin.H{"day": d}
 	if len(ensured) > 0 {
 		resp["foods_ensured"] = ensured
+	}
+	if len(created) > 0 {
+		resp["foods_created"] = created
+		resp["reply"] = FormatFoodsCreatedReply(created)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -634,7 +647,8 @@ func (s *Service) handleDayMealPost(c *gin.Context) {
 		writeStoreErr(c, err)
 		return
 	}
-	if err := st.PrepareMealSlot(&meal, body.EnsureFoods); err != nil {
+	created, err := st.PrepareMealSlot(&meal, body.EnsureFoods)
+	if err != nil {
 		writeStoreErr(c, err)
 		return
 	}
@@ -643,7 +657,12 @@ func (s *Service) handleDayMealPost(c *gin.Context) {
 		writeStoreErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"day": d})
+	resp := gin.H{"day": d}
+	if len(created) > 0 {
+		resp["foods_created"] = created
+		resp["reply"] = FormatFoodsCreatedReply(created)
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (s *Service) handleDayMealPut(c *gin.Context) {
@@ -662,13 +681,8 @@ func (s *Service) handleDayMealPut(c *gin.Context) {
 		return
 	}
 	meal := body.MealSlot
-	for _, f := range body.EnsureFoods {
-		if _, err := st.EnsureFood(f); err != nil {
-			writeStoreErr(c, err)
-			return
-		}
-	}
-	if err := st.PrepareMealSlot(&meal, nil); err != nil {
+	created, err := st.PrepareMealSlot(&meal, body.EnsureFoods)
+	if err != nil {
 		writeStoreErr(c, err)
 		return
 	}
@@ -677,7 +691,31 @@ func (s *Service) handleDayMealPut(c *gin.Context) {
 		writeStoreErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"day": d})
+	resp := gin.H{"day": d}
+	if len(created) > 0 {
+		resp["foods_created"] = created
+		resp["reply"] = FormatFoodsCreatedReply(created)
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (s *Store) ensureMealFoods(meal *MealSlot, ensureFoods []Food) (ensured, created []Food, err error) {
+	for _, f := range ensureFoods {
+		got, isNew, e := s.EnsureFood(f)
+		if e != nil {
+			return nil, nil, e
+		}
+		ensured = append(ensured, got)
+		if isNew {
+			created = append(created, got)
+		}
+	}
+	added, e := s.PrepareMealSlot(meal, nil)
+	if e != nil {
+		return nil, nil, e
+	}
+	created = dedupeFoodsByID(append(created, added...))
+	return ensured, created, nil
 }
 
 func (s *Service) handleDayMealDelete(c *gin.Context) {
@@ -765,22 +803,22 @@ func (s *Service) handleImportMarkdown(c *gin.Context) {
 		return
 	}
 	replace := !(c.Query("merge") == "true" || c.Query("merge") == "1")
-	w, f, d, err := ImportFromMDDir(s.Config.MDDataDir)
+	w, f, d, stock, err := ImportFromMDDir(s.Config.MDDataDir)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if len(w) == 0 && len(f) == 0 && len(d) == 0 {
+	if len(w) == 0 && len(f) == 0 && len(d) == 0 && len(stock) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no markdown data in mddata"})
 		return
 	}
 	if replace {
-		if err := st.ReplaceImported(w, f, d); err != nil {
+		if err := st.ReplaceImported(w, f, d, stock); err != nil {
 			writeStoreErr(c, err)
 			return
 		}
 	} else {
-		bundle := JSONBundle{Weights: w, Foods: f, Days: d}
+		bundle := JSONBundle{Weights: w, Foods: f, Days: d, Stock: stock}
 		if _, err := st.ImportBundle(bundle, true); err != nil {
 			writeStoreErr(c, err)
 			return
@@ -791,10 +829,146 @@ func (s *Service) handleImportMarkdown(c *gin.Context) {
 			"weights": len(w),
 			"foods":   len(f),
 			"days":    len(d),
+			"stock":   len(stock),
 		},
 		"replace": replace,
 		"source":  s.Config.MDDataDir,
 	})
+}
+
+func (s *Service) handleStockList(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	activeOnly := c.Query("active") == "1" || c.Query("active") == "true"
+	lots, err := st.ListStockLots(activeOnly)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"lots": lots, "count": len(lots)})
+}
+
+func (s *Service) handleStockGet(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	lot, found := st.StockLotByID(c.Param("id"))
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"lot": lot})
+}
+
+func (s *Service) handleStockCreate(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var lot StockLot
+	if err := c.BindJSON(&lot); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	out, err := st.UpsertStockLot(lot)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"lot": out})
+}
+
+func (s *Service) handleStockUpdate(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var lot StockLot
+	if err := c.BindJSON(&lot); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	lot.ID = c.Param("id")
+	out, err := st.UpsertStockLot(lot)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"lot": out})
+}
+
+func (s *Service) handleStockDelete(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	if err := st.DeleteStockLot(c.Param("id")); err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
+}
+
+func (s *Service) handleStockDraw(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body StockDraw
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	if body.Date == "" {
+		body.Date = todayAthens()
+	}
+	day, lot, err := st.DrawFromStock(c.Param("id"), body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"day": day, "lot": lot})
+}
+
+func (s *Service) handleStockAdjust(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body StockAdjust
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	lot, err := st.AdjustFromStock(c.Param("id"), body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"lot": lot})
+}
+
+func (s *Service) handleStockActive(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Active bool `json:"active"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	lot, err := st.SetStockLotActive(c.Param("id"), body.Active)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"lot": lot})
 }
 
 func writeStoreErr(c *gin.Context, err error) {

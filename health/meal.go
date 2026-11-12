@@ -29,50 +29,72 @@ func FinalizeMealTotals(meal *MealSlot) {
 }
 
 // PrepareMealSlot ensures catalog entries, scales item nutrients, and finalizes slot totals.
-func (s *Store) PrepareMealSlot(meal *MealSlot, ensureFoods []Food) error {
+func (s *Store) PrepareMealSlot(meal *MealSlot, ensureFoods []Food) ([]Food, error) {
+	if meal != nil {
+		s.linkMealItemsToStock(&meal.Items)
+	}
+	var created []Food
 	for _, f := range ensureFoods {
-		if _, err := s.EnsureFood(f); err != nil {
-			return err
+		got, isNew, err := s.EnsureFood(f)
+		if err != nil {
+			return nil, err
+		}
+		if isNew {
+			created = append(created, got)
 		}
 	}
 	for i := range meal.Items {
 		it := &meal.Items[i]
-		if err := s.ensureItemTree(it); err != nil {
-			return err
+		added, err := s.ensureItemTree(it)
+		if err != nil {
+			return nil, err
 		}
+		created = append(created, added...)
 		if err := s.ScaleItemFromFood(it); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	FinalizeMealTotals(meal)
-	return nil
+	return created, nil
 }
 
-func (s *Store) ensureItemTree(it *MealItem) error {
-	if err := s.maybeEnsureFoodFromItem(it); err != nil {
-		return err
+func (s *Store) ensureItemTree(it *MealItem) ([]Food, error) {
+	added, err := s.maybeEnsureFoodFromItem(it)
+	if err != nil {
+		return nil, err
 	}
 	for i := range it.Parts {
-		if err := s.ensureItemTree(&it.Parts[i]); err != nil {
-			return err
+		more, err := s.ensureItemTree(&it.Parts[i])
+		if err != nil {
+			return nil, err
 		}
+		added = append(added, more...)
 	}
-	return nil
+	return added, nil
 }
 
-func (s *Store) maybeEnsureFoodFromItem(it *MealItem) error {
+func (s *Store) maybeEnsureFoodFromItem(it *MealItem) ([]Food, error) {
 	if it.KcalPer100g == nil && it.SodiumMgPer100g == nil {
-		return nil
+		return nil, nil
 	}
 	name := strings.TrimSpace(it.Name)
 	if name == "" {
-		return fmt.Errorf("%w: name required to add food from item", ErrInvalidInput)
+		return nil, fmt.Errorf("%w: name required to add food from item", ErrInvalidInput)
 	}
-	_, err := s.EnsureFood(Food{
+	got, isNew, err := s.EnsureFood(Food{
 		ID:              it.FoodID,
 		Name:            name,
 		KcalPer100g:     it.KcalPer100g,
 		SodiumMgPer100g: it.SodiumMgPer100g,
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	if it.FoodID == "" {
+		it.FoodID = got.ID
+	}
+	if isNew {
+		return []Food{got}, nil
+	}
+	return nil, nil
 }

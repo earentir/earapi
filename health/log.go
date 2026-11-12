@@ -31,6 +31,8 @@ type DayLogResult struct {
 	Day            *Day     `json:"day,omitempty"`
 	Weight         *WeighIn `json:"weight,omitempty"`
 	FoodsEnsured   []Food   `json:"foods_ensured,omitempty"`
+	FoodsCreated   []Food   `json:"foods_created,omitempty"`
+	Reply          string   `json:"reply,omitempty"`
 	DeletedFoods   []string `json:"deleted_foods,omitempty"`
 	DeletedWeights []string `json:"deleted_weights,omitempty"`
 	DeletedMeals   []string `json:"deleted_meals,omitempty"`
@@ -67,12 +69,16 @@ func (s *Store) ApplyLog(req DayLog) (*DayLogResult, error) {
 	}
 
 	ensured := make([]Food, 0, len(req.EnsureFoods))
+	var created []Food
 	for _, f := range req.EnsureFoods {
-		got, err := s.EnsureFood(f)
+		got, isNew, err := s.EnsureFood(f)
 		if err != nil {
 			return nil, err
 		}
 		ensured = append(ensured, got)
+		if isNew {
+			created = append(created, got)
+		}
 	}
 
 	meals := append([]mealWriteBody(nil), req.Meals...)
@@ -93,9 +99,11 @@ func (s *Store) ApplyLog(req DayLog) (*DayLogResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := s.PrepareMealSlot(&meal, body.EnsureFoods); err != nil {
+		added, err := s.PrepareMealSlot(&meal, body.EnsureFoods)
+		if err != nil {
 			return nil, err
 		}
+		created = appendCreatedFoods(created, added)
 		d, err := s.UpsertMealSlot(date, slot, meal, body.Replace)
 		if err != nil {
 			return nil, err
@@ -148,7 +156,28 @@ func (s *Store) ApplyLog(req DayLog) (*DayLogResult, error) {
 	if len(ensured) > 0 {
 		out.FoodsEnsured = ensured
 	}
+	if len(created) > 0 {
+		out.FoodsCreated = dedupeFoodsByID(created)
+		out.Reply = FormatFoodsCreatedReply(out.FoodsCreated)
+	}
 	return out, nil
+}
+
+func appendCreatedFoods(dst, src []Food) []Food {
+	return dedupeFoodsByID(append(dst, src...))
+}
+
+func dedupeFoodsByID(foods []Food) []Food {
+	seen := map[string]bool{}
+	out := make([]Food, 0, len(foods))
+	for _, f := range foods {
+		if f.ID == "" || seen[f.ID] {
+			continue
+		}
+		seen[f.ID] = true
+		out = append(out, f)
+	}
+	return out
 }
 
 func stringsTrimDate(s string) string {

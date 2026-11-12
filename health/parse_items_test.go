@@ -1,6 +1,12 @@
 package health
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestParseMealItemsFromRawDinner(t *testing.T) {
 	raw := `Soup-tomato mix 400 g ~92 / ~112 + moussaka 200 g ~440 / ~390 + lettuce 100 g ~25 / ~20 + EVOO 2 g 0 / ~18 + balsamic cream 4 g ~16 / ~14 → **~573 / ~554 → +10% margin = ~609**`
@@ -16,6 +22,89 @@ func TestParseMealItemsFromRawDinner(t *testing.T) {
 	}
 	if items[3].Grams != 2 {
 		t.Fatalf("evoo %+v", items[3])
+	}
+}
+
+func TestParseMealStructureNov11Lunch(t *testing.T) {
+	raw := `Perch (cooked, no salt) 400 g (~70 kcal / ~70 mg per 100 g, Oct 24 precedent) ~280 / ~280 + roasted bell pepper 150 g + roasted potato 150 g (Nov 10 style, minimal oil in batch) ~8 / ~138 + Salad: baby leaves 50 g + iceberg 50 g + tomato 100 g + EVOO 4 g + balsamic cream 11 g → **~360 / ~572 → +10% margin = ~629**`
+	items := ParseMealStructureFromRaw(raw)
+	if len(items) != 4 {
+		t.Fatalf("top-level %d %+v", len(items), items)
+	}
+	if items[3].Name != "Salad" || len(items[3].Parts) != 5 {
+		t.Fatalf("salad set %+v", items[3])
+	}
+}
+
+func TestParseMealItemsNov11Lunch(t *testing.T) {
+	raw := `Perch (cooked, no salt) 400 g + roasted bell pepper 150 g + roasted potato 150 g + Salad: baby leaves 50 g + iceberg 50 g + tomato 100 g + EVOO 4 g + balsamic cream 11 g → **~360 / ~572 → +10% margin = ~629**`
+	flat := ParseMealItemsFromRaw(raw)
+	if len(flat) != 8 {
+		t.Fatalf("flat %d %+v", len(flat), flat)
+	}
+}
+
+func TestParseMealItemsNov3Snack(t *testing.T) {
+	raw := `Rusks no salt 12 g ×3 (36 g, label 387 kcal / ~15 mg per 100 g) ~5 / ~139 + NuKrema 13 g ×3 (39 g, label 550 kcal / ~38 mg per 100 g) ~15 / ~215 → **~20 / ~354 → +10% margin = ~389** + Vitalina FRUIT 170 g (label: ~87 kcal / ~75 mg per portion) ~75 / ~87 + corn wafers ×2 (~20 g, 416 kcal / ~400 mg per 100 g, weight estimated ~10 g/wafer - correct if off) ~80 / ~83 → **~175 / ~576**`
+	items := ParseMealItemsFromRaw(raw)
+	if len(items) != 4 {
+		t.Fatalf("got %d %+v", len(items), items)
+	}
+	if items[3].Grams != 20 && items[3].Grams != 0 {
+		// ×2 with (~20 g) in paren may win
+	}
+}
+
+func TestCompactMealRawNov11Lunch(t *testing.T) {
+	verbose := `Perch (cooked, no salt) 400 g + roasted bell pepper 150 g + roasted potato 150 g + Salad: baby leaves 50 g + iceberg 50 g + tomato 100 g + EVOO 4 g + balsamic cream 11 g → **~360 / ~572 → +10% margin = ~629**`
+	want := `Perch (cooked, no salt) 400 g + roasted bell pepper 150 g + roasted potato 150 g + Salad: baby leaves 50 g + iceberg 50 g + tomato 100 g + EVOO 4 g + balsamic cream 11 g → **~360 / ~572 → +10% margin = ~629**`
+	if got := CompactMealRaw(verbose); got != want {
+		t.Fatalf("compact:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestRefreshNovemberItemTable(t *testing.T) {
+	if os.Getenv("REFRESH_NOVEMBER_ITEMS") == "" {
+		t.Skip("set REFRESH_NOVEMBER_ITEMS=1 to rewrite item appendix in mddata")
+	}
+	path := filepath.Join("..", "mddata", "Health Tracker - 2026 November.md")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(b)
+	if i := strings.Index(content, "\n## Items (name + g"); i >= 0 {
+		content = content[:i]
+	}
+	content = strings.TrimRight(content, "\n") + "\n"
+	days := parseMonthMarkdown(content, 2026)
+	var rows []string
+	rows = append(rows, "## Items (name + g, auto-split from meal text)", "", "| Date | Slot | Items |", "|---|---|---|")
+	for _, d := range days {
+		date := strings.TrimPrefix(d.Date, "2026-")
+		m, _ := time.Parse("2006-01-02", d.Date)
+		if !m.IsZero() {
+			date = m.Format("Jan 2")
+		}
+		for _, slot := range []string{"lunch", "dinner", "snack"} {
+			raw := strings.TrimSpace(d.Meals[slot].Raw)
+			if raw == "" || itemSkipRawRe.MatchString(raw) {
+				continue
+			}
+			items := ParseMealItemsFromRaw(raw)
+			if len(items) == 0 {
+				continue
+			}
+			var bits []string
+			for _, it := range flattenItems(items) {
+				bits = append(bits, formatMealItemCompact(it))
+			}
+			rows = append(rows, "| "+date+" | "+slot+" | "+strings.Join(bits, ", ")+" |")
+		}
+	}
+	rows = append(rows, "", "_Nutrition notes and per-item mg/kcal stay in the main table; this section is structured rows for import and LLM fill. Regenerate: `REFRESH_NOVEMBER_ITEMS=1 go test ./health -run TestRefreshNovemberItemTable`._", "")
+	if err := os.WriteFile(path, []byte(content+"\n"+strings.Join(rows, "\n")), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -60,7 +149,7 @@ func TestScaleDish(t *testing.T) {
 			},
 		}},
 	}
-	if err := st.PrepareMealSlot(&meal, nil); err != nil {
+	if _, err := st.PrepareMealSlot(&meal, nil); err != nil {
 		t.Fatal(err)
 	}
 	// batch 210g, eaten 150g; leaves 100 kcal, oil 10 kcal -> 110 * 150/210

@@ -25,6 +25,7 @@ type Food struct {
 type MealItem struct {
 	Name            string     `json:"name"`
 	FoodID          string     `json:"food_id,omitempty"`
+	StockLotID      string     `json:"stock_lot_id,omitempty"`
 	Grams           float64    `json:"grams,omitempty"`
 	Kcal            float64    `json:"kcal,omitempty"`
 	SodiumMg        float64    `json:"sodium_mg,omitempty"`
@@ -61,4 +62,32 @@ type Day struct {
 // ValidMealSlots are accepted slot/type values.
 var ValidMealSlots = map[string]bool{
 	"lunch": true, "dinner": true, "snack": true,
+}
+
+// StockLot is a prepped batch (one meal-style set): Items are the full-batch ingredient lines (parts).
+type StockLot struct {
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	PreparedDate    string     `json:"prepared_date,omitempty"`
+	BatchGrams      float64    `json:"batch_grams"`
+	RemainingGrams  float64    `json:"remaining_grams"`
+	Active          *bool      `json:"active,omitempty"`
+	Items           []MealItem `json:"items,omitempty"`
+	Notes           string     `json:"notes,omitempty"`
+	KcalPer100g     *float64          `json:"kcal_per_100g,omitempty"`
+	SodiumMgPer100g *float64          `json:"sodium_mg_per_100g,omitempty"`
+	Usage           []StockMovement   `json:"usage,omitempty"`
+}
+
+// StockDraw logs grams from a lot onto a day slot.
+type StockDraw struct {
+	Date  string  `json:"date"`
+	Slot  string  `json:"slot"`
+	Grams float64 `json:"grams"`
+}
+
+// StockAdjust removes grams from a lot without logging a meal (household / discarded).
+type StockAdjust struct {
+	Grams float64 `json:"grams"` // 0 = all remaining
+	Mode  string  `json:"mode"`  // household, discarded
 }

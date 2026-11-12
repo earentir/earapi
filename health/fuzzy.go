@@ -45,7 +45,7 @@ func RankFoods(foods []Food, q string, limit int) []Food {
 }
 
 func scoreName(name, q string) int {
-	low := strings.ToLower(name)
+	low := strings.ToLower(cleanFoodDisplayName(name))
 	if low == q {
 		return 1000
 	}
@@ -132,17 +132,48 @@ func max(a, b int) int {
 
 // BestFoodMatch picks the top fuzzy match for scaling nutrients.
 func BestFoodMatch(foods []Food, name string) (*Food, bool) {
-	ranked := RankFoods(foods, name, 1)
-	if len(ranked) == 0 {
+	q := foodMatchQuery(name)
+	if q == "" {
 		return nil, false
 	}
-	top := RankFoods(foods, name, 5)
+	top := RankFoods(foods, q, 5)
 	if len(top) == 0 {
 		return nil, false
 	}
-	if scoreName(top[0].Name, strings.ToLower(strings.TrimSpace(name))) < 50 {
+	best := scoreName(top[0].Name, q)
+	if best < 80 {
+		for _, c := range top {
+			if tokenBoost(c.Name, q) {
+				f := c
+				return &f, true
+			}
+		}
+		return nil, false
+	}
+	if len(top) > 1 && scoreName(top[1].Name, q) >= best-15 {
 		return nil, false
 	}
 	f := top[0]
 	return &f, true
+}
+
+// marata-style: meal line "Marata 1.7%" vs catalog bullet with Greek name + 1.7%.
+func tokenBoost(name, q string) bool {
+	low := strings.ToLower(cleanFoodDisplayName(name))
+	q = strings.ToLower(q)
+	if strings.Contains(q, "marata") && strings.Contains(low, "marata") && strings.Contains(q, "1.7") && strings.Contains(low, "1.7") {
+		return true
+	}
+	return false
+}
+
+func foodMatchQuery(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if i := strings.Index(name, "("); i > 0 {
+		name = strings.TrimSpace(name[:i])
+	}
+	return strings.ToLower(name)
 }

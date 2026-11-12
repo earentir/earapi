@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -62,6 +63,10 @@ func main() {
 				counts, err := healthpkg.ImportMarkdownForUser("healthdata", "mddata", healthImportMDUser)
 				if err != nil {
 					fmt.Println("health import error:", err)
+					if strings.Contains(strings.ToLower(err.Error()), "locked") ||
+						strings.Contains(strings.ToLower(err.Error()), "busy") {
+						fmt.Println("Stop the running earapi server first (Ctrl+C), then run import again.")
+					}
 					return err
 				}
 				fmt.Printf("Imported for %q: %+v\n", healthImportMDUser, counts)
@@ -205,7 +210,7 @@ func runAPIServer() {
 		if wlsvc.BrowserName != "" {
 			fmt.Println("Watchlist alias resolution via:", wlsvc.BrowserName)
 		} else {
-			fmt.Println("Watchlist: no browser found — p.* IMDb aliases need CSV import")
+			fmt.Println("Watchlist: no browser found - p.* IMDb aliases need CSV import")
 		}
 	}
 

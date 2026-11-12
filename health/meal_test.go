@@ -38,7 +38,7 @@ func TestPrepareMealSlotCatalog(t *testing.T) {
 		KcalMargin: 0.10,
 		Items:      []MealItem{{FoodID: "pasta", Grams: 100}},
 	}
-	if err := st.PrepareMealSlot(&meal, nil); err != nil {
+	if _, err := st.PrepareMealSlot(&meal, nil); err != nil {
 		t.Fatal(err)
 	}
 	wantK := 131.0 * 1.10
@@ -64,7 +64,7 @@ func TestEnsureFoodAndLogNewItem(t *testing.T) {
 	meal := MealSlot{
 		Items: []MealItem{{Name: "Energy bite", Grams: 50, KcalPer100g: &k, SodiumMgPer100g: ptrF(80)}},
 	}
-	if err := st.PrepareMealSlot(&meal, nil); err != nil {
+	if _, err := st.PrepareMealSlot(&meal, nil); err != nil {
 		t.Fatal(err)
 	}
 	if meal.Kcal != 200 {

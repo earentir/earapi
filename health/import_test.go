@@ -10,8 +10,8 @@ import (
 func TestParseWeightSnippet(t *testing.T) {
 	snippet := `| Date | kg | RHR (bpm) | Note |
 | --- | --- | --- | --- |
-| Oct 23 | 144.3 | — | **PROTOCOL ✓** |
-| Oct 12 | 148.3 | — | evening |
+| Oct 23 | 144.3 | - | **PROTOCOL ✓** |
+| Oct 12 | 148.3 | - | evening |
 `
 	rows := parseWeightMarkdown(snippet, 2026)
 	if len(rows) != 2 {
@@ -56,7 +56,7 @@ func TestHydrateDayFromRaw(t *testing.T) {
 	d := Day{
 		Date: "2026-11-10",
 		Meals: map[string]MealSlot{
-			"lunch":  {Raw: "— (no lunch, user)"},
+			"lunch":  {Raw: "- (no lunch, user)"},
 			"dinner": {Raw: `soup → **~573 / ~554 → +10% margin = ~609**`},
 			"snack":  {Raw: `eggs → **~1,129 / ~857 → +10% margin = ~926**`},
 		},
@@ -95,7 +95,7 @@ func TestImportFromRepoMDData(t *testing.T) {
 	if _, err := os.Stat(dir); err != nil {
 		t.Skip("mddata not present")
 	}
-	w, f, d, err := ImportFromMDDir(dir)
+	w, f, d, stock, err := ImportFromMDDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +107,18 @@ func TestImportFromRepoMDData(t *testing.T) {
 	}
 	if len(d) < 5 {
 		t.Fatalf("expected many days got %d", len(d))
+	}
+	if len(stock) < 5 {
+		t.Fatalf("expected stock lots from Misc got %d", len(stock))
+	}
+	active := 0
+	for _, lot := range stock {
+		if stockLotIsActive(lot) {
+			active++
+		}
+	}
+	if active < 3 {
+		t.Fatalf("expected several active stock lots got %d", active)
 	}
 	// fuzzy sanity
 	names := strings.Join([]string{f[0].Name}, "")
