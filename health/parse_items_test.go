@@ -55,6 +55,83 @@ func TestParseMealItemsNov3Snack(t *testing.T) {
 	}
 }
 
+func TestParseBoneInWingsNov12(t *testing.T) {
+	ch := `roasted wings 440 g (265 g bones → 175 g edible)`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 175 {
+		t.Fatalf("grams=%v want 175 edible", it.Grams)
+	}
+}
+
+func TestParseThighBoneYieldOct2(t *testing.T) {
+	ch := `chicken thigh 270 g bone-in (bone 115 g → 155 g edible)`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 155 {
+		t.Fatalf("grams=%v want 155", it.Grams)
+	}
+}
+
+func TestParseChickenLegsMeatYieldOct6(t *testing.T) {
+	ch := `Chicken legs 340 g edible (725 g raw air-fried, ~200 g bone)`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 340 {
+		t.Fatalf("grams=%v want 340", it.Grams)
+	}
+}
+
+func TestParseSkewersMeatOct7(t *testing.T) {
+	ch := `Skewers 410 g meat (440 g incl. ~30 g wood; breast 340 g + thigh 70 g, no oil)`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 410 {
+		t.Fatalf("grams=%v want 410", it.Grams)
+	}
+}
+
+func TestParseLegsEdibleTimes2(t *testing.T) {
+	ch := `Chicken legs 155 g edible ×2 (270 g bone-in each, 57% yield verified Oct 2)`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 310 {
+		t.Fatalf("grams=%v want 310 (155×2)", it.Grams)
+	}
+}
+
+func TestParseWingsEdibleOnly(t *testing.T) {
+	ch := `chicken wings 170 g edible`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 170 {
+		t.Fatalf("grams=%v", it.Grams)
+	}
+}
+
+func TestParseRusksParenTotalGrams(t *testing.T) {
+	ch := `Rusks no salt 12 g ×3 (36 g, label 387 kcal / ~15 mg per 100 g)`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 36 && it.Grams != 12 {
+		t.Fatalf("grams=%v want 36 or 12", it.Grams)
+	}
+}
+
 func TestCompactMealRawNov11Lunch(t *testing.T) {
 	verbose := `Perch (cooked, no salt) 400 g + roasted bell pepper 150 g + roasted potato 150 g + Salad: baby leaves 50 g + iceberg 50 g + tomato 100 g + EVOO 4 g + balsamic cream 11 g → **~360 / ~572 → +10% margin = ~629**`
 	want := `Perch (cooked, no salt) 400 g + roasted bell pepper 150 g + roasted potato 150 g + Salad: baby leaves 50 g + iceberg 50 g + tomato 100 g + EVOO 4 g + balsamic cream 11 g → **~360 / ~572 → +10% margin = ~629**`

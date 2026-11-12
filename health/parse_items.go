@@ -9,7 +9,12 @@ import (
 var (
 	itemGramsRe       = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*g\b`)
 	itemEggCountRe    = regexp.MustCompile(`(?i)(\d+)\s+eggs?\b`)
-	itemParenGRe      = regexp.MustCompile(`(?i)\((\d+(?:\.\d+)?)\s*g`)
+	itemParenGRe         = regexp.MustCompile(`(?i)\((?:~)?(\d+(?:\.\d+)?)\s*g`)
+	itemBonesToEdibleRe  = regexp.MustCompile(`(?i)\d+(?:\.\d+)?\s*g\s*bones?\s*(?:→|->)\s*(?:~)?(\d+(?:\.\d+)?)\s*g\s*edible`)
+	itemBoneToEdibleRe   = regexp.MustCompile(`(?i)bone[s]?\s+\d+(?:\.\d+)?\s*g\s*(?:→|->)\s*(?:~)?(\d+(?:\.\d+)?)\s*g\s*edible`)
+	itemEdibleGramsRe    = regexp.MustCompile(`(?i)(?:~)?(\d+(?:\.\d+)?)\s*g\s*edible\b`)
+	itemRawToMeatRe      = regexp.MustCompile(`(?i)(?:→|->)\s*(?:~)?(\d+(?:\.\d+)?)\s*g\s*meat\b`)
+	itemMeatGramsRe      = regexp.MustCompile(`(?i)(?:~)?(\d+(?:\.\d+)?)\s*g\s*meat\b`)
 	itemTimesRe       = regexp.MustCompile(`×\s*(\d+(?:\.\d+)?)`)
 	itemTotalCutRe    = regexp.MustCompile(`(?i)\s*(?:→|->)\s*\*\*`)
 	itemSkipRawRe     = regexp.MustCompile(`(?i)^(?:-|–|\x{2014})\s*(\(no |\s*$)|^\s*$`)
@@ -245,15 +250,78 @@ func parseDishChunk(ch string) (MealItem, bool) {
 	return MealItem{Name: dishName, Grams: dishGrams, Parts: parts, Note: ch}, true
 }
 
+// gramsFromMealChunk prefers edible meat grams over whole/bone weights in markdown meal lines.
+func gramsFromMealChunk(ch string) float64 {
+	if m := itemBonesToEdibleRe.FindStringSubmatch(ch); len(m) > 1 {
+		return parseFloatLoose(m[1])
+	}
+	if m := itemBoneToEdibleRe.FindStringSubmatch(ch); len(m) > 1 {
+		return parseFloatLoose(m[1])
+	}
+	if edible := lastEdibleGrams(ch); edible > 0 {
+		return edible
+	}
+	if m := itemRawToMeatRe.FindStringSubmatch(ch); len(m) > 1 {
+		return parseFloatLoose(m[1])
+	}
+	if meat := lastMeatGrams(ch); meat > 0 {
+		return meat
+	}
+	for _, m := range itemParenGRe.FindAllStringSubmatch(ch, -1) {
+		if len(m) < 2 {
+			continue
+		}
+		if parenGramsIsBoneNote(ch, m[1]) {
+			continue
+		}
+		g := parseFloatLoose(m[1])
+		if g > 0 {
+			return g
+		}
+	}
+	return 0
+}
+
+func lastEdibleGrams(ch string) float64 {
+	matches := itemEdibleGramsRe.FindAllStringSubmatch(ch, -1)
+	if len(matches) == 0 {
+		return 0
+	}
+	return parseFloatLoose(matches[len(matches)-1][1])
+}
+
+func lastMeatGrams(ch string) float64 {
+	matches := itemMeatGramsRe.FindAllStringSubmatch(ch, -1)
+	if len(matches) == 0 {
+		return 0
+	}
+	return parseFloatLoose(matches[len(matches)-1][1])
+}
+
+func parenGramsIsBoneNote(ch, gramsStr string) bool {
+	idx := strings.Index(strings.ToLower(ch), "("+strings.ToLower(gramsStr))
+	if idx < 0 {
+		idx = strings.Index(strings.ToLower(ch), "(~"+strings.ToLower(gramsStr))
+	}
+	if idx < 0 {
+		return false
+	}
+	snip := strings.ToLower(ch[idx:])
+	if idx+80 < len(ch) {
+		snip = snip[:80]
+	}
+	if !strings.Contains(snip, "bone") {
+		return false
+	}
+	return strings.Contains(snip, "bone") && !strings.Contains(snip, "edible")
+}
+
 func parseOneMealChunk(ch string) (MealItem, bool) {
 	ch = stripChunkForParse(ch)
 	if ch == "" || itemSkipRawRe.MatchString(ch) {
 		return MealItem{}, false
 	}
-	grams := 0.0
-	if m := itemParenGRe.FindStringSubmatch(ch); len(m) > 1 {
-		grams = parseFloatLoose(m[1])
-	}
+	grams := gramsFromMealChunk(ch)
 	if grams == 0 {
 		loc := itemGramsRe.FindStringIndex(ch)
 		if loc != nil {
@@ -281,17 +349,33 @@ func parseOneMealChunk(ch string) (MealItem, bool) {
 		count = parseFloatLoose(m[1])
 	}
 	if grams == 0 && count > 0 {
-		if pm := itemParenGRe.FindStringSubmatch(ch); len(pm) > 1 {
-			grams = parseFloatLoose(pm[1])
+		if g := gramsFromMealChunk(ch); g > 0 {
+			grams = g
 		} else if g := itemCountGuessGrams(count, ch); g > 0 {
 			grams = g
 		}
+	}
+	if count > 1 && grams > 0 && edibleGramsBeforeCount(ch) {
+		grams *= count
 	}
 	name := itemNameFromChunk(ch)
 	if name == "" {
 		return MealItem{}, false
 	}
 	return MealItem{Name: name, Grams: grams, Count: count, Note: ch}, true
+}
+
+func edibleGramsBeforeCount(ch string) bool {
+	low := strings.ToLower(ch)
+	ti := strings.Index(ch, "×")
+	if ti < 0 {
+		return false
+	}
+	if !itemEdibleGramsRe.MatchString(ch) {
+		return false
+	}
+	ei := strings.Index(low, "edible")
+	return ei >= 0 && ei < ti
 }
 
 func stripChunkForParse(ch string) string {
