@@ -2,6 +2,7 @@ import { AUTH_KEY, EMPTY_CELL, SLOTS } from "./constants.js";
 import { NAV_TABS, applyRouteToState, pathForTab, pushAppRoute, resolveTodayDate } from "./route.js";
 import { dayCardStatus, dayCardListDotMarkup, dayStatusDotMarkup } from "./day-status.js";
 import { legacyTotalMismatch } from "./legacy-totals.js";
+import { mealEnergyBand } from "./meal-energy-band.js";
 import { applyMealMarginTotals, mealMarginPercent } from "./meal-margin.js";
 import { themeSelectHtml, saveTheme } from "./theme.js";
 import { state, emptyItem, emptySlot, emptyDraft, emptyStockSet, emptyStockForm } from "./state.js";
@@ -786,8 +787,9 @@ function mealLine(slot, d) {
   const m = d.meals?.[slot];
   const text = mealText(m);
   if (!text) return "";
+  const band = mealEnergyBand(m?.kcal);
   const totRow = m && (m.kcal || m.sodium_mg)
-    ? `<div class="meal-line-totals mono muted">${fmt(m.kcal, 0)} kcal, ${fmt(m.sodium_mg, 0)} mg</div>`
+    ? `<div class="meal-line-totals mono ${band}"><span class="meal-band-kcal">${fmt(m.kcal, 0)} kcal</span>, <span class="meal-band-na">${fmt(m.sodium_mg, 0)} mg</span></div>`
     : "";
   return `<div class="meal-line"><span class="slot-lab">${slot}</span><div class="meal-line-main"><div class="meal-line-text">${esc(text)}</div>${totRow}</div></div>`;
 }

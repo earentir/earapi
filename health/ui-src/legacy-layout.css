@@ -469,6 +469,15 @@ td.mono, .date-iso { white-space: nowrap; }
   font-size: 0.82rem;
   margin-top: 0.12rem;
 }
+.meal-band--muted { color: var(--muted); }
+.meal-band--green .meal-band-kcal,
+.meal-band--green .meal-band-na { color: var(--ok, #3ecf8e); }
+.meal-band--yellow .meal-band-kcal,
+.meal-band--yellow .meal-band-na { color: #d4b429; }
+.meal-band--orange .meal-band-kcal,
+.meal-band--orange .meal-band-na { color: #e6940a; }
+.meal-band--red .meal-band-kcal,
+.meal-band--red .meal-band-na { color: var(--warn, #f87171); }
 .days-filter-bar {
   display: flex;
   flex-wrap: wrap;
