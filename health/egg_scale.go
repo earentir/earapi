@@ -2,14 +2,18 @@ package health
 
 import (
 	"math"
+	"regexp"
 	"strings"
 )
+
+// Whole-word only — "Reggiano" must not match the "egg" inside the name.
+var eggFoodNameRe = regexp.MustCompile(`(?i)\beggs?\b`)
 
 func isEggFood(f *Food) bool {
 	if f == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(f.Name), "egg")
+	return eggFoodNameRe.MatchString(strings.TrimSpace(f.Name))
 }
 
 func eggCountFromMealLine(name, note string) float64 {
