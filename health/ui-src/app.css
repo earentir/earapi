@@ -1,0 +1,115 @@
+@import "tailwindcss";
+@source "./**/*.{js,html}";
+@plugin "./vendor/daisyui" {
+  themes: dark --default, dim --prefersdark, nord, business, light;
+}
+
+/* Original layout + grid (pre-Daisy rewrite); colors follow active daisy theme */
+@import "./legacy-layout.css";
+
+[data-theme] {
+  --bg: var(--color-base-100);
+  --bg-elev: var(--color-base-200);
+  --bg-panel: var(--color-base-300);
+  --line: color-mix(in oklab, var(--color-base-content) 14%, var(--color-base-200));
+  --text: var(--color-base-content);
+  --muted: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  --accent: var(--color-primary);
+  --accent-dim: color-mix(in oklab, var(--color-primary) 75%, black);
+  --warn: var(--color-error);
+  --ok: var(--color-success);
+}
+
+/* DaisyUI on legacy class names (1:1 controls, same DOM) */
+#app .btn.primary,
+#app .nav button.active {
+  background: var(--color-primary);
+  color: var(--color-primary-content);
+  border-color: var(--color-primary);
+  font-weight: 600;
+}
+
+#app .btn.danger {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+#app .btn.ghost {
+  background: transparent;
+}
+
+#app .nav button,
+#app .btn {
+  border-radius: var(--radius-field);
+}
+
+#app .date-nav .iso-date {
+  width: 10.5rem;
+  min-width: 10.5rem;
+  flex: 0 0 auto;
+}
+
+#app .field input,
+#app .field textarea,
+#app .field select,
+#app .cell-grams,
+#app .name-field input,
+#app .item-row input,
+#app .login.card input {
+  border-radius: var(--radius-field);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 18%, transparent);
+  background: var(--color-base-100);
+  padding: 0.4rem 0.55rem;
+  width: 100%;
+}
+
+#app .field select,
+#app .add-to-set {
+  border-radius: var(--radius-field);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 18%, transparent);
+  background: var(--color-base-100);
+}
+
+#app .theme-pick {
+  border-radius: var(--radius-field);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 18%, transparent);
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  padding: 0.28rem 0.4rem;
+  font-size: 0.78rem;
+  max-width: 6.5rem;
+}
+
+#app .toast {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-box);
+  background: var(--color-base-200);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 15%, transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+#app .toast.app-toast {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-box);
+  background: var(--color-base-200);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 15%, transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+body > .modal.modal-open {
+  z-index: 1000;
+}
+
+body > .modal.modal-open .modal-box {
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
+}

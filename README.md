@@ -729,7 +729,7 @@ curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
 
 curl -sS -X POST https://api.earentir.dev/health/v1/log \
   -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' -H 'Content-Type: application/json' \
-  -d '{"date":"2026-11-11","kcal_margin":0.10,"meals":[{"slot":"lunch","replace":true,"items":[{"name":"Pasta (cooked, no salt)","grams":120}]}],"weight":{"kg":142.5,"protocol":true}}' | jq '.day.totals'
+  -d '{"date":"2026-11-11","meals":[{"slot":"lunch","replace":true,"items":[{"name":"Pasta (cooked, no salt)","grams":120}]}],"weight":{"kg":142.5,"protocol":true}}' | jq '.day.totals'
 
 # Weight
 curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
@@ -754,12 +754,28 @@ curl -sS -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' \
 # Preferred: one request per meal (server scales nutrients from catalog; can add new foods in the same body)
 curl -sS -X POST https://api.earentir.dev/health/v1/days/2026-11-11/meals/log \
   -H 'X-User: pantazis' -H 'X-API-Key: YOUR_TOKEN' -H 'Content-Type: application/json' \
-  -d '{"slot":"lunch","items":[{"name":"Pasta (cooked, no salt)","grams":120}],"kcal_margin":0.10}' | jq '.'
+  -d '{"slot":"lunch","items":[{"name":"Pasta (cooked, no salt)","grams":120}]}' | jq '.'
 ```
 
 `POST .../meals/log` and `POST .../meals` accept optional `ensure_foods` (catalog upsert) and per-item `food_id`, `kcal_per_100g`, `sodium_mg_per_100g` for items not yet in the catalog. See `GET /health/v1/help`.
 
 Add `health.users` to `config/earapi.json` (see below). Default template uses username `pantazis` and token `change-me`.
+
+### Health UI build (DaisyUI + esbuild, no npm)
+
+The tracker at `/health/ui/` is **not** committed pre-built. From the repo root:
+
+```bash
+make api          # health UI + go build → ./earapi (ready to run)
+make health-ui    # UI only (esbuild + Tailwind + daisyUI)
+make build        # alias for make api
+```
+
+- Sources: `health/ui-src/` (`main.js`, `lib/*`, `app.css`, `vendor/daisyui/`).
+- Output (gitignored): `health/ui/app.js`, `app.css`, `index.html` (embedded by Go).
+- Override CLI: `TAILWINDCSS=/path/to/tailwindcss make health-ui` (otherwise `tools/tailwindcss` is downloaded once).
+- Refresh DaisyUI only: `make vendor-daisyui` (default version in `Makefile`).
+- Default theme: `dark`; switch in the navbar (stored in `localStorage` as `earapi-health-theme`).
 
 ### Initial import from `mddata/`
 

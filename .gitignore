@@ -29,3 +29,7 @@ watchlistdata/
 healthdata/
 mddata/
 earapi
+health/ui/app.js
+health/ui/app.css
+health/ui/index.html
+tools/tailwindcss
