@@ -51,6 +51,7 @@ export function cloneDraftItem(it) {
   return {
     name: it.name || "",
     grams: it.grams != null && it.grams !== "" ? it.grams : "",
+    count: it.count != null && it.count !== "" ? it.count : "",
     food_id: it.food_id || "",
     stock_lot_id: it.stock_lot_id || "",
     kcal: it.kcal != null ? it.kcal : "",

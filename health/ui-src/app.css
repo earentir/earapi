@@ -49,6 +49,10 @@
   flex: 0 0 auto;
 }
 
+#app .day-title-status.day-card-status--hoverable {
+  pointer-events: auto;
+}
+
 #app .field input,
 #app .field textarea,
 #app .field select,

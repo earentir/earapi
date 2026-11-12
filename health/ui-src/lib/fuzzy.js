@@ -11,12 +11,76 @@ export function foodMatchQuery(name) {
   return n.toLowerCase();
 }
 
+const FOOD_PREP_PHRASES = [
+  "sunny side up", "sunny side", "sunny-side",
+  "air fryer", "air fried", "air-fried", "airfried",
+  "deep fried", "deep-fried", "pan fried", "pan-fried", "stir fried", "stir-fried",
+  "no salt", "no-salt", "low salt", "low-salt", "low sodium", "low-sodium",
+  "bone in", "bone-in", "skin on", "skin-on",
+  "cooked no salt", "cooked, no salt",
+  "ready meal", "ready-meal",
+];
+
+const foodPrepStopwords = new Set([
+  "boiled", "roasted", "fried", "grilled", "baked", "steamed", "smoked", "braised",
+  "poached", "scrambled", "sauteed", "sautéed", "saute", "microwaved", "charred", "broiled",
+  "stewed", "blanched", "seared", "toasted", "air", "deep", "pan", "stir",
+  "raw", "cooked", "uncooked", "frozen", "dried", "canned", "fresh", "unsalted", "salted",
+  "seasoned", "pickled", "marinated", "breaded", "caramelized",
+  "shredded", "sliced", "diced", "chopped", "minced", "crispy", "whole", "boneless",
+  "bone", "bones", "skinless", "skin", "edible", "homemade", "ready",
+  "sunny", "side", "up", "omelet", "omelette", "style", "minimal", "leftover",
+  "large", "small", "medium",
+]);
+
+function stripPrepFromMealLine(s) {
+  let t = String(s ?? "").trim().toLowerCase().replace(/-/g, " ");
+  for (const p of FOOD_PREP_PHRASES) {
+    t = t.replaceAll(p.replace(/-/g, " "), " ");
+  }
+  return t.replace(/\s+/g, " ").trim();
+}
+
+const foodPluralSingular = {
+  potatoes: "potato", eggs: "egg", tomatoes: "tomato", grapes: "grape",
+  leaves: "leaf", beans: "bean", onions: "onion", peppers: "pepper",
+};
+
 function tokens(s) {
   return s
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
+}
+
+function foldFoodToken(t) {
+  if (foodPluralSingular[t]) return foodPluralSingular[t];
+  if (t.endsWith("ies") && t.length > 4) return `${t.slice(0, -3)}y`;
+  if (t.endsWith("es") && t.length > 3) return t.slice(0, -2);
+  if (t.endsWith("s") && !t.endsWith("ss") && t.length > 3) return t.slice(0, -1);
+  return t;
+}
+
+function matchQueryTokens(q) {
+  const qt = tokens(stripPrepFromMealLine(q));
+  const meaningful = qt.filter((t) => !/^\d/.test(t));
+  if (!meaningful.length) return [];
+  return meaningful.filter((t) => !foodPrepStopwords.has(t));
+}
+
+function tokenInFoodName(token, full) {
+  if (!token) return true;
+  if (full.includes(token)) return true;
+  if (foodPluralSingular[token] && full.includes(foodPluralSingular[token])) return true;
+  const folded = foldFoodToken(token);
+  if (folded !== token && full.includes(folded)) return true;
+  return false;
+}
+
+function tokensEqualForFood(a, b) {
+  if (a === b) return true;
+  return foldFoodToken(a) === foldFoodToken(b);
 }
 
 function levenshtein(a, b) {
@@ -43,12 +107,12 @@ export function scoreFoodName(catalogName, q) {
   if (low.includes(q) || full.includes(q)) {
     return 800 + Math.floor((200 * q.length) / Math.max(1, Math.min(low.length, full.length)));
   }
-  const qt = tokens(q);
+  const qt = matchQueryTokens(q);
   const nt = tokens(low);
   let overlap = 0;
   for (const tq of qt) {
     for (const tn of nt) {
-      if (tq === tn) overlap += 100;
+      if (tokensEqualForFood(tq, tn)) overlap += 100;
       else if (tn.includes(tq) || tq.includes(tn)) overlap += 50;
       else {
         const d = levenshtein(tq, tn);
@@ -57,7 +121,7 @@ export function scoreFoodName(catalogName, q) {
     }
   }
   // Meal shorthand: every query token appears somewhere in the full catalog name (incl. parentheses).
-  if (qt.length > 0 && qt.every((t) => full.includes(t))) {
+  if (qt.length > 0 && qt.every((t) => tokenInFoodName(t, full))) {
     overlap = Math.max(overlap, 80 + qt.length * 40);
   }
   return overlap;
@@ -71,11 +135,43 @@ function tokenBoost(catalogName, q) {
   );
 }
 
-function allQueryTokensInName(catalogName, q) {
+function mealNounTokens(mealLine) {
+  return matchQueryTokens(mealLine);
+}
+
+function mealPrepHints(mealLine) {
+  return tokens(String(mealLine ?? "").trim()).filter((t) => foodPrepStopwords.has(t));
+}
+
+export function scoreFoodNameForMealLine(catalogName, mealLine) {
+  const q = foodMatchQuery(mealLine);
+  let sc = scoreFoodName(catalogName, q);
   const full = cleanFoodDisplayName(catalogName).toLowerCase();
-  const qt = tokens(q);
+  for (const h of mealPrepHints(mealLine)) {
+    if (full.includes(h)) sc += 55;
+  }
+  return sc;
+}
+
+/** Meal shorthand must match food nouns, not only a shared prep word (boiled). */
+export function catalogMatchesMealLine(catalogName, mealLine) {
+  const q = String(mealLine ?? "").trim().toLowerCase();
+  if (!q) return false;
+  const full = cleanFoodDisplayName(catalogName).toLowerCase();
+  const qt = matchQueryTokens(q);
   if (!qt.length) return false;
-  return qt.every((t) => full.includes(t));
+  if (!qt.every((t) => tokenInFoodName(t, full))) return false;
+  const nouns = mealNounTokens(mealLine);
+  if (!nouns.length) return true;
+  return nouns.every((n) => tokenInFoodName(n, full));
+}
+
+function filterFoodsForMealLine(foods, mealLine) {
+  return foods.filter((f) => catalogMatchesMealLine(f.name, mealLine));
+}
+
+function allQueryTokensInName(catalogName, q) {
+  return catalogMatchesMealLine(catalogName, q);
 }
 
 export function foodByAlias(aliases, foods, name) {
@@ -86,13 +182,34 @@ export function foodByAlias(aliases, foods, name) {
   return foods.find((f) => f.id === row.food_id) || null;
 }
 
-/** Typeahead: strict for multi-word queries (avoids soup≈sauce / lone "base" noise). */
+/** Live typeahead while typing a meal line (prefix-friendly, not as strict as auto-link). */
+export function typeaheadFoodSuggestions(foods, itemName, limit = 8) {
+  const raw = String(itemName ?? "").trim().toLowerCase();
+  if (!raw || !foods?.length) return [];
+  const pool = filterFoodsForMealLine(foods, itemName);
+  const parts = raw.split(/\s+/).filter(Boolean);
+  const partial = /\s$/.test(String(itemName ?? "")) ? "" : parts[parts.length - 1];
+
+  const ranked = [];
+  for (const f of pool) {
+    const full = cleanFoodDisplayName(f.name).toLowerCase();
+    if (partial) {
+      const wordHit = tokens(full).some((w) => w.startsWith(partial));
+      if (!full.includes(partial) && !wordHit) continue;
+    }
+    ranked.push({ f, sc: scoreFoodName(f.name, raw) });
+  }
+  ranked.sort((a, b) => b.sc - a.sc || a.f.name.localeCompare(b.f.name));
+  let out = ranked.slice(0, limit).map((x) => x.f);
+  if (out.length) return out;
+  return foodPickCandidates(foods, itemName, limit);
+}
+
+/** Typeahead list for meal name fields (catalog lookup while typing). */
 export function catalogFoodSuggestions(foods, itemName, limit = 8) {
-  const q = String(itemName ?? "").trim().toLowerCase();
+  const q = String(itemName ?? "").trim();
   if (!q || !foods?.length) return [];
-  const qt = tokens(q);
-  if (qt.length >= 2) return foodMatchCandidates(foods, itemName, limit);
-  return foods.filter((f) => cleanFoodDisplayName(f.name).toLowerCase().includes(q)).slice(0, limit);
+  return typeaheadFoodSuggestions(foods, q, limit);
 }
 
 /** Foods that might match this line name (for user pick when several are close). */
@@ -101,14 +218,14 @@ export function foodPickCandidates(foods, itemName, limit = 12) {
   const strict = foodMatchCandidates(foods, itemName, limit);
   if (strict.length) return strict;
   const q = foodMatchQuery(itemName);
-  const qt = tokens(q);
+  const qt = matchQueryTokens(q);
   if (!qt.length || !foods?.length) return [];
   const ranked = [];
-  for (const f of foods) {
+  for (const f of filterFoodsForMealLine(foods, itemName)) {
     const full = cleanFoodDisplayName(f.name).toLowerCase();
     let hit = 0;
     for (const t of qt) {
-      if (full.includes(t)) hit += 1;
+      if (tokenInFoodName(t, full)) hit += 1;
     }
     if (hit > 0) ranked.push({ f, hit, sc: scoreFoodName(f.name, q) });
   }
@@ -124,16 +241,11 @@ export function foodPickCandidates(foods, itemName, limit = 12) {
 export function foodMatchCandidates(foods, itemName, limit = 12) {
   const q = foodMatchQuery(itemName);
   if (!q || !foods?.length) return [];
-  const qt = tokens(q);
-  let pool = foods;
-  if (qt.length >= 2) {
-    const strict = foods.filter((f) => allQueryTokensInName(f.name, q));
-    if (!strict.length) return [];
-    pool = strict;
-  }
+  const pool = filterFoodsForMealLine(foods, itemName);
+  if (!pool.length) return [];
   const scored = [];
   for (const f of pool) {
-    const sc = scoreFoodName(f.name, q);
+    const sc = scoreFoodNameForMealLine(f.name, itemName);
     if (sc >= 80) scored.push({ f, sc });
   }
   if (!scored.length) return [];
@@ -146,25 +258,19 @@ export function foodMatchCandidates(foods, itemName, limit = 12) {
 export function bestFoodMatch(foods, itemName) {
   const q = foodMatchQuery(itemName);
   if (!q || !foods?.length) return null;
-  let pool = foods;
-  const qt = tokens(q);
-  if (qt.length > 1) {
-    const strict = foods.filter((f) => allQueryTokensInName(f.name, q));
-    if (!strict.length) return null;
-    pool = strict;
-  }
+  const pool = filterFoodsForMealLine(foods, itemName);
+  if (!pool.length) return null;
   const scored = [];
   for (const f of pool) {
-    const sc = scoreFoodName(f.name, q);
-    if (sc > 0) scored.push({ f, sc });
+    const sc = scoreFoodNameForMealLine(f.name, itemName);
+    if (sc >= 80) scored.push({ f, sc });
   }
   scored.sort((a, b) => b.sc - a.sc);
-  if (!scored.length) return null;
-  const bestSc = scored[0].sc;
-  if (bestSc < 80) {
+  if (!scored.length) {
     const hit = foods.find((f) => tokenBoost(f.name, q));
     return hit || null;
   }
+  const bestSc = scored[0].sc;
   if (scored.length > 1 && scored[1].sc >= bestSc - 15) return null;
   return scored[0].f;
 }

@@ -29,8 +29,17 @@ func registerUI(r *gin.Engine) {
 		}
 		data, err := fs.ReadFile(sub, name)
 		if err != nil {
-			c.Status(http.StatusNotFound)
-			return
+			// Client routes (/health/ui/foods, /health/ui/today/2026-01-02, …) → SPA shell.
+			if !strings.Contains(name, ".") {
+				data, err = fs.ReadFile(sub, "index.html")
+				if err == nil {
+					name = "index.html"
+				}
+			}
+			if err != nil {
+				c.Status(http.StatusNotFound)
+				return
+			}
 		}
 		ctype := mime.TypeByExtension(path.Ext(name))
 		if ctype == "" {

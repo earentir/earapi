@@ -125,6 +125,143 @@ export function bindIsoInputs(root = document) {
   });
 }
 
+/**
+ * Simple form in a DaisyUI modal. Resolves field values or null if cancelled.
+ * fields: { key, label, value?, type?: text|decimal|numeric|textarea|checkbox|row, grow?, tight?, date?: bool, rows?, fields? (for row) }
+ * deleteLabel + onDelete: optional; Delete button on the left of the action row (edit flows).
+ */
+export function formModal({
+  title,
+  fields,
+  submitLabel = "Save",
+  cancelLabel = "Cancel",
+  deleteLabel,
+  onDelete,
+}) {
+  return new Promise((resolve) => {
+    const fieldLabel = (f) => {
+      const val = f.value ?? "";
+      const cls = f.grow ? "field grow" : f.tight ? "field tight" : "field";
+      if (f.type === "checkbox") {
+        const checked = val === true || val === "true" || val === "1";
+        return `<label class="check"><input type="checkbox" data-fm="${esc(f.key)}" ${checked ? "checked" : ""}> ${esc(f.label)}</label>`;
+      }
+      if (f.type === "textarea") {
+        return `<label class="${cls}"><span>${esc(f.label)}</span><textarea data-fm="${esc(f.key)}" rows="${f.rows || 2}">${esc(String(val))}</textarea></label>`;
+      }
+      const mode = f.type === "decimal" ? ' inputmode="decimal"' : f.type === "numeric" ? ' inputmode="numeric"' : "";
+      const dateAttrs = f.date ? ' class="iso-date mono" maxlength="10" placeholder="YYYY-MM-DD" autocomplete="off" lang="en"' : "";
+      return `<label class="${cls}"><span>${esc(f.label)}</span><input type="text" data-fm="${esc(f.key)}" value="${esc(String(val))}"${mode}${dateAttrs}></label>`;
+    };
+    const fieldHtml = fields.map((f) => {
+      if (f.type === "row" && f.fields?.length) {
+        return `<div class="form-modal-row row">${f.fields.map(fieldLabel).join("")}</div>`;
+      }
+      return fieldLabel(f);
+    }).join("");
+    const deleteBtn = deleteLabel && onDelete
+      ? `<button type="button" class="btn danger" data-fm-delete>${esc(deleteLabel)}</button>`
+      : "";
+    const overlay = el(`<div class="modal modal-open modal-middle entity-form-modal" role="dialog" aria-modal="true">
+      <div class="modal-box modal-box-form">
+        <h3 class="text-lg font-bold form-modal-title">${esc(title)}</h3>
+        <div class="form-modal-fields stack-fields">${fieldHtml}</div>
+        <div class="modal-action form-modal-actions">
+          ${deleteBtn}
+          <button type="button" class="btn" data-fm-cancel>${esc(cancelLabel)}</button>
+          <button type="button" class="btn primary" data-fm-submit>${esc(submitLabel)}</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" data-fm-cancel aria-label="Close">close</button></form>
+    </div>`);
+    const close = (vals) => {
+      overlay.remove();
+      resolve(vals);
+    };
+    const leafFields = () => fields.flatMap((f) => (f.type === "row" && f.fields?.length ? f.fields : [f]));
+    const read = () => {
+      const out = {};
+      for (const f of leafFields()) {
+        if (!f.key) continue;
+        const inp = overlay.querySelector(`[data-fm="${f.key}"]`);
+        if (!inp) continue;
+        if (f.type === "checkbox") out[f.key] = inp.checked;
+        else out[f.key] = inp.value;
+      }
+      return out;
+    };
+    overlay.querySelectorAll("[data-fm-cancel]").forEach((b) => b.addEventListener("click", () => close(null)));
+    overlay.querySelector("[data-fm-submit]")?.addEventListener("click", () => close(read()));
+    overlay.querySelector("[data-fm-delete]")?.addEventListener("click", async () => {
+      if (!onDelete) return;
+      try {
+        const ok = await onDelete();
+        if (ok) close(null);
+      } catch {
+        /* onDelete shows toast */
+      }
+    });
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") close(null);
+      if (e.key === "Enter" && e.target?.matches?.("input:not([type=checkbox])")) {
+        e.preventDefault();
+        close(read());
+      }
+    });
+    document.body.appendChild(overlay);
+    bindIsoInputs(overlay);
+    const first = overlay.querySelector("[data-fm]");
+    first?.focus();
+    if (first?.select) first.select();
+  });
+}
+
+/** Modal shell with custom HTML; onSubmit(overlay) may return false to keep open. */
+export function customModal({
+  title,
+  bodyHtml,
+  submitLabel = "Save",
+  cancelLabel = "Cancel",
+  extraClass = "",
+  onMount,
+  onSubmit,
+}) {
+  return new Promise((resolve) => {
+    const overlay = el(`<div class="modal modal-open modal-middle ${extraClass}" role="dialog" aria-modal="true">
+      <div class="modal-box modal-box-form modal-box-wide">
+        <h3 class="text-lg font-bold">${esc(title)}</h3>
+        <div class="custom-modal-body">${bodyHtml}</div>
+        <div class="modal-action">
+          <button type="button" class="btn" data-cm-cancel>${esc(cancelLabel)}</button>
+          <button type="button" class="btn primary" data-cm-submit>${esc(submitLabel)}</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" data-cm-cancel aria-label="Close">close</button></form>
+    </div>`);
+    const close = (ok) => {
+      overlay.remove();
+      resolve(ok);
+    };
+    overlay.querySelectorAll("[data-cm-cancel]").forEach((b) => b.addEventListener("click", () => close(false)));
+    overlay.querySelector("[data-cm-submit]")?.addEventListener("click", async () => {
+      if (onSubmit) {
+        try {
+          const keep = await onSubmit(overlay);
+          if (keep === false) return;
+        } catch {
+          return;
+        }
+      }
+      close(true);
+    });
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") close(false);
+    });
+    document.body.appendChild(overlay);
+    onMount?.(overlay);
+  });
+}
+
 export function confirmModal({ title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false }) {
   return new Promise((resolve) => {
     const overlay = el(`<div class="modal modal-open modal-middle" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
