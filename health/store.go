@@ -1081,34 +1081,41 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool) 
 	if it.Grams <= 0 {
 		return nil
 	}
+	scaleFromCatalog := func() bool {
+		var f *Food
+		var ok bool
+		if it.FoodID != "" {
+			f, ok = s.foodByIDUnlocked(it.FoodID)
+		} else if byAlias, okAlias := s.foodByAliasUnlocked(it.Name); okAlias {
+			f, ok = byAlias, true
+		} else {
+			f, ok = BestFoodMatch(s.listFoodsUnlocked(), it.Name)
+		}
+		if !ok || f == nil {
+			return false
+		}
+		if it.FoodID == "" {
+			it.FoodID = f.ID
+		}
+		if strings.TrimSpace(it.Name) == "" {
+			it.Name = f.Name
+		}
+		kcal100, sod100 := nutrientsForFood(f)
+		if kcal100 != nil && it.Kcal == 0 {
+			it.Kcal = mealItemKcalFromFood(it, f, kcal100)
+		}
+		if sod100 != nil && it.SodiumMg == 0 {
+			it.SodiumMg = *sod100 * it.Grams / 100
+		}
+		return it.Kcal > 0
+	}
+	if scaleFromCatalog() {
+		return nil
+	}
 	if s.scaleItemFromStockUnlockedVis(it, active) {
 		return nil
 	}
-	var f *Food
-	var ok bool
-	if it.FoodID != "" {
-		f, ok = s.foodByIDUnlocked(it.FoodID)
-	} else if byAlias, okAlias := s.foodByAliasUnlocked(it.Name); okAlias {
-		f, ok = byAlias, true
-	} else {
-		f, ok = BestFoodMatch(s.listFoodsUnlocked(), it.Name)
-	}
-	if !ok || f == nil {
-		return nil
-	}
-	if it.FoodID == "" {
-		it.FoodID = f.ID
-	}
-	if strings.TrimSpace(it.Name) == "" {
-		it.Name = f.Name
-	}
-	kcal100, sod100 := nutrientsForFood(f)
-	if kcal100 != nil && it.Kcal == 0 {
-		it.Kcal = *kcal100 * it.Grams / 100
-	}
-	if sod100 != nil && it.SodiumMg == 0 {
-		it.SodiumMg = *sod100 * it.Grams / 100
-	}
+	scaleFromCatalog()
 	return nil
 }
 
@@ -1164,7 +1171,7 @@ func scaleItemFromFoodWithCatalog(it *MealItem, catalog []Food, byAlias map[stri
 	}
 	kcal100, sod100 := nutrientsForFood(f)
 	if kcal100 != nil && it.Kcal == 0 {
-		it.Kcal = *kcal100 * it.Grams / 100
+		it.Kcal = mealItemKcalFromFood(it, f, kcal100)
 	}
 	if sod100 != nil && it.SodiumMg == 0 {
 		it.SodiumMg = *sod100 * it.Grams / 100

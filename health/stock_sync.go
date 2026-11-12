@@ -89,25 +89,12 @@ func (s *Store) scaleItemFromStockUnlockedVis(it *MealItem, active map[string]bo
 	if active == nil {
 		active = make(map[string]bool)
 	}
-	var lot *StockLot
-	if it.StockLotID != "" {
-		if l, ok := s.stockLotByIDUnlocked(it.StockLotID); ok {
-			lot = l
-		}
+	// Only scale when the user explicitly linked a stock lot on the meal line — never guess from the name.
+	if it.StockLotID == "" {
+		return false
 	}
-	if lot == nil {
-		lots, err := s.listStockLotsUnlocked()
-		if err != nil || len(lots) == 0 {
-			return false
-		}
-		if id := matchMealItemToStockLot(it.Name, lots); id != "" {
-			it.StockLotID = id
-			if l, ok := s.stockLotByIDUnlocked(id); ok {
-				lot = l
-			}
-		}
-	}
-	if lot == nil {
+	lot, ok := s.stockLotByIDUnlocked(it.StockLotID)
+	if !ok || lot == nil {
 		return false
 	}
 	if strings.TrimSpace(it.Name) == "" {
@@ -121,19 +108,33 @@ func (s *Store) scaleItemFromStockUnlockedVis(it *MealItem, active map[string]bo
 		return scaleMealItemFromStockLotMacros(it, lot)
 	}
 
-	scaled := false
-	if len(lot.Items) > 0 && len(it.Parts) == 0 {
-		virtual := MealItem{Name: it.Name, Grams: it.Grams, Parts: cloneStockRecipeParts(*lot)}
-		active[lot.ID] = true
-		_ = s.scaleDishUnlocked(&virtual, active)
-		delete(active, lot.ID)
-		it.Kcal = virtual.Kcal
-		it.SodiumMg = virtual.SodiumMg
-		scaled = it.Kcal > 0 || it.SodiumMg > 0
-		if !scaled {
-			scaled = scaleMealItemFromStockLotMacros(it, lot)
+	// Meal log lines are portion draws from a batch — never treat logged grams as the full recipe batch size.
+	if len(it.Parts) == 0 {
+		if it.Kcal > 0 || it.SodiumMg > 0 {
+			return true
 		}
-	} else if len(it.Parts) > 0 && it.StockLotID != "" {
+		if scaleMealItemFromStockLotMacros(it, lot) {
+			return true
+		}
+		batchG := lot.BatchGrams
+		if batchG > 0 && len(lot.Items) > 0 {
+			virtual := MealItem{Name: lot.Name, Grams: batchG, Parts: cloneStockRecipeParts(*lot)}
+			active[lot.ID] = true
+			_ = s.scaleDishUnlocked(&virtual, active)
+			delete(active, lot.ID)
+			if virtual.Kcal > 0 {
+				it.Kcal = virtual.Kcal / batchG * it.Grams
+			}
+			if virtual.SodiumMg > 0 {
+				it.SodiumMg = virtual.SodiumMg / batchG * it.Grams
+			}
+			return it.Kcal > 0 || it.SodiumMg > 0
+		}
+		return scaleMealItemFromStockLotMacros(it, lot)
+	}
+
+	scaled := false
+	if len(it.Parts) > 0 && it.StockLotID != "" {
 		virtual := MealItem{Name: it.Name, Grams: it.Grams, Parts: it.Parts}
 		active[lot.ID] = true
 		_ = s.scaleDishUnlocked(&virtual, active)

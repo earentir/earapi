@@ -41,9 +41,7 @@ func FinalizeMealTotals(meal *MealSlot) {
 
 // PrepareMealSlot ensures catalog entries, scales item nutrients, and finalizes slot totals.
 func (s *Store) PrepareMealSlot(meal *MealSlot, ensureFoods []Food) ([]Food, error) {
-	if meal != nil {
-		s.linkMealItemsToStock(&meal.Items)
-	}
+	// Stock lots are opt-in per line (stock_lot_id set in UI); no auto-link from names.
 	var created []Food
 	for _, f := range ensureFoods {
 		got, isNew, err := s.EnsureFood(f)

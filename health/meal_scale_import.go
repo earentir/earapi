@@ -6,9 +6,33 @@ func ScaleDayMealsFromCatalog(d *Day, foods []Food, stock []StockLot, aliasFoods
 		return
 	}
 	clearDayItemMacros(d)
+	clearMealStockLotLinks(d)
 	for slot, m := range d.Meals {
 		ScaleMealSlotFromCatalog(&m, foods, stock, aliasFoods)
 		RecomputeMealSlotTotalsFromItems(&m)
+		d.Meals[slot] = m
+	}
+}
+
+func clearMealStockLotLinks(d *Day) {
+	if d == nil || d.Meals == nil {
+		return
+	}
+	var walk func(*MealItem)
+	walk = func(it *MealItem) {
+		if it == nil {
+			return
+		}
+		it.StockLotID = ""
+		for i := range it.Parts {
+			walk(&it.Parts[i])
+		}
+	}
+	for slot := range d.Meals {
+		m := d.Meals[slot]
+		for i := range m.Items {
+			walk(&m.Items[i])
+		}
 		d.Meals[slot] = m
 	}
 }
@@ -53,6 +77,7 @@ func ScaleMealSlotFromCatalog(meal *MealSlot, foods []Food, stock []StockLot, al
 	if meal == nil {
 		return
 	}
+	normalizeMealItems(meal.Items)
 	for i := range meal.Items {
 		scaleItemImport(&meal.Items[i], foods, stock, aliasFoods)
 	}
@@ -76,30 +101,7 @@ func scaleItemImport(it *MealItem, foods []Food, stock []StockLot, aliasFoods ma
 	if it.Grams <= 0 {
 		return
 	}
-	if scaleImportItemFromStock(it, stock) {
-		return
-	}
+	// Meals use Food Data + aliases only. Stock lots are for prep batches you track in Stock, not auto-linked on import.
+	_ = stock
 	_ = scaleItemFromFoodWithCatalog(it, foods, aliasFoods)
-}
-
-func scaleImportItemFromStock(it *MealItem, lots []StockLot) bool {
-	if it == nil || it.Grams <= 0 || len(lots) == 0 {
-		return false
-	}
-	id := matchMealItemToStockLot(it.Name, lots)
-	if id == "" {
-		return false
-	}
-	var lot *StockLot
-	for i := range lots {
-		if lots[i].ID == id {
-			lot = &lots[i]
-			break
-		}
-	}
-	if lot == nil {
-		return false
-	}
-	it.StockLotID = id
-	return scaleMealItemFromStockLotMacros(it, lot)
 }

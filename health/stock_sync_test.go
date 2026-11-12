@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestScaleMealItemFromStockByShortName(t *testing.T) {
+func TestScaleMealItemFromExplicitStockLotID(t *testing.T) {
 	root := t.TempDir()
 	db, err := OpenSharedDB(root)
 	if err != nil {
@@ -24,12 +24,9 @@ func TestScaleMealItemFromStockByShortName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	it := MealItem{Name: "soup-tomato mix", Grams: 360}
+	it := MealItem{Name: "soup-tomato mix", Grams: 360, StockLotID: lot.ID}
 	if err := st.ScaleItemFromFood(&it); err != nil {
 		t.Fatal(err)
-	}
-	if it.StockLotID != lot.ID {
-		t.Fatalf("lot id %q want %q", it.StockLotID, lot.ID)
 	}
 	if it.Kcal < 80 || it.Kcal > 85 {
 		t.Fatalf("kcal %v", it.Kcal)
