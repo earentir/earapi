@@ -1,5 +1,7 @@
 package health
 
+import "strings"
+
 // ScaleDayMealsFromCatalog links food_id and fills line kcal/sodium from Foods + Stock during markdown import.
 func ScaleDayMealsFromCatalog(d *Day, foods []Food, stock []StockLot, aliasFoods map[string]Food) {
 	if d == nil {
@@ -103,5 +105,25 @@ func scaleItemImport(it *MealItem, foods []Food, stock []StockLot, aliasFoods ma
 	}
 	// Meals use Food Data + aliases only. Stock lots are for prep batches you track in Stock, not auto-linked on import.
 	_ = stock
-	_ = scaleItemFromFoodWithCatalog(it, foods, aliasFoods)
+	_ = scaleItemFromFoodWithCatalogForce(it, foods, aliasFoods)
+}
+
+func scaleItemFromFoodWithCatalogForce(it *MealItem, catalog []Food, byAlias map[string]Food) error {
+	if len(it.Parts) > 0 {
+		return scaleDishWithCatalog(it, catalog, byAlias)
+	}
+	if it.Grams <= 0 {
+		return nil
+	}
+	f, ok := foodForMealLine(it.Name, catalog, byAlias)
+	if !ok || f == nil {
+		return nil
+	}
+	it.FoodID = f.ID
+	if strings.TrimSpace(it.Name) == "" {
+		it.Name = f.Name
+	}
+	kcal100, sod100 := nutrientsForFood(f)
+	applyCatalogMacrosToItemForce(it, f, kcal100, sod100)
+	return nil
 }
