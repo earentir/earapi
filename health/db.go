@@ -146,6 +146,17 @@ func migrateHealthDB(db *sql.DB) error {
 			return err
 		}
 	}
+	for col, def := range map[string]float64{
+		"legacy_diff_green_lt":  DefaultLegacyDiffGreenLt,
+		"legacy_diff_yellow_lt": DefaultLegacyDiffYellowLt,
+		"legacy_diff_orange_lt": DefaultLegacyDiffOrangeLt,
+	} {
+		if !tableHasColumn(db, "user_settings", col) {
+			if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE user_settings ADD COLUMN %s REAL NOT NULL DEFAULT %g`, col, def)); err != nil {
+				return err
+			}
+		}
+	}
 	for _, col := range []string{
 		"energy_kj_per_100g",
 		"fat_g_per_100g",

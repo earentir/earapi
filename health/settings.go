@@ -13,9 +13,18 @@ type KcalBudgetSettings struct {
 	SoftHighKcal      float64 `json:"soft_high_kcal"`
 	GainMinKcal       float64 `json:"gain_min_kcal"`
 	MealMarginPercent float64 `json:"meal_margin_percent"` // +% on each meal slot total (lunch/dinner/snack), not per line
+	// Legacy diff bands: day header colors use |catalog − markdown| (kcal and mg Na each).
+	LegacyDiffGreenLt  float64 `json:"legacy_diff_green_lt"`  // delta < this → green
+	LegacyDiffYellowLt float64 `json:"legacy_diff_yellow_lt"` // delta < this → yellow
+	LegacyDiffOrangeLt float64 `json:"legacy_diff_orange_lt"` // delta < this → orange; else red
 }
 
-const DefaultMealMarginPercent = 10
+const (
+	DefaultMealMarginPercent   = 10
+	DefaultLegacyDiffGreenLt   = 100
+	DefaultLegacyDiffYellowLt  = 200
+	DefaultLegacyDiffOrangeLt  = 300
+)
 
 // DefaultKcalBudgetSettings is used when seeding a new user row.
 func DefaultKcalBudgetSettings() KcalBudgetSettings {
@@ -23,7 +32,10 @@ func DefaultKcalBudgetSettings() KcalBudgetSettings {
 		SoftLowKcal:       1500,
 		SoftHighKcal:      1700,
 		GainMinKcal:       2200,
-		MealMarginPercent: DefaultMealMarginPercent,
+		MealMarginPercent:  DefaultMealMarginPercent,
+		LegacyDiffGreenLt:  DefaultLegacyDiffGreenLt,
+		LegacyDiffYellowLt: DefaultLegacyDiffYellowLt,
+		LegacyDiffOrangeLt: DefaultLegacyDiffOrangeLt,
 	}
 }
 
@@ -41,6 +53,20 @@ func (s KcalBudgetSettings) normalized() KcalBudgetSettings {
 	if s.MealMarginPercent < 0 || math.IsNaN(s.MealMarginPercent) {
 		s.MealMarginPercent = d.MealMarginPercent
 	}
+	if s.LegacyDiffGreenLt <= 0 || math.IsNaN(s.LegacyDiffGreenLt) {
+		s.LegacyDiffGreenLt = d.LegacyDiffGreenLt
+	}
+	if s.LegacyDiffYellowLt <= 0 || math.IsNaN(s.LegacyDiffYellowLt) {
+		s.LegacyDiffYellowLt = d.LegacyDiffYellowLt
+	}
+	if s.LegacyDiffOrangeLt <= 0 || math.IsNaN(s.LegacyDiffOrangeLt) {
+		s.LegacyDiffOrangeLt = d.LegacyDiffOrangeLt
+	}
+	if !(s.LegacyDiffGreenLt < s.LegacyDiffYellowLt && s.LegacyDiffYellowLt < s.LegacyDiffOrangeLt) {
+		s.LegacyDiffGreenLt = d.LegacyDiffGreenLt
+		s.LegacyDiffYellowLt = d.LegacyDiffYellowLt
+		s.LegacyDiffOrangeLt = d.LegacyDiffOrangeLt
+	}
 	return s
 }
 
@@ -55,6 +81,9 @@ func (s KcalBudgetSettings) Validate() error {
 	}
 	if s.MealMarginPercent > 100 {
 		return fmt.Errorf("%w: meal_margin_percent must be at most 100", ErrInvalidInput)
+	}
+	if !(s.LegacyDiffGreenLt < s.LegacyDiffYellowLt && s.LegacyDiffYellowLt < s.LegacyDiffOrangeLt) {
+		return fmt.Errorf("%w: need legacy_diff_green_lt < legacy_diff_yellow_lt < legacy_diff_orange_lt", ErrInvalidInput)
 	}
 	return nil
 }
