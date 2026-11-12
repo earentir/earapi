@@ -71,6 +71,8 @@ func rebuildDayMealsFromRaw(d *Day, foods []Food, stock []StockLot) bool {
 	}
 	clearDayItemMacros(d)
 	ScaleDayMealsFromCatalog(d, foods, stock, nil)
+	CalibrateMealSlotsFromRawTotals(d, DefaultMealMarginPercent)
+	CalibrateDayTotalsFromLegacy(d, DefaultMealMarginPercent)
 	RecomputeDayTotals(d)
 	return true
 }

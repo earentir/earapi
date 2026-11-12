@@ -135,7 +135,11 @@ func (s *Store) ReplaceImported(mdDir string, weights []WeighIn, foods []Food, d
 			(dd.Totals.Kcal > 0 || dd.Totals.SodiumMg > 0) {
 			dd.LegacyTotals = dd.Totals
 		}
+		ensureMealSlotFallbackItems(&dd)
 		ScaleDayMealsFromCatalog(&dd, foods, stock, aliasFoods)
+		repairZeroKcalSlotsFromRaw(&dd)
+		CalibrateMealSlotsFromRawTotals(&dd, DefaultMealMarginPercent)
+		CalibrateDayTotalsFromLegacy(&dd, DefaultMealMarginPercent)
 		RecomputeDayTotalsWithMargin(&dd, DefaultMealMarginPercent)
 		if err := saveDayTxUser(tx, uid, &dd, DefaultMealMarginPercent); err != nil {
 			return err
@@ -949,7 +953,9 @@ func RecomputeDayTotalsWithMargin(d *Day, marginPercent float64) {
 		} else {
 			FinalizeMealTotals(&m)
 		}
-		ApplyMealSlotMargin(&m, marginPercent)
+		if ShouldApplyMealSlotMargin(&m, marginPercent) {
+			ApplyMealSlotMargin(&m, marginPercent)
+		}
 		d.Meals[slot] = m
 		sod += m.SodiumMg
 		kc += m.Kcal
@@ -967,7 +973,10 @@ func (s *Store) enrichDayTotalsUnlocked(d *Day) {
 		return
 	}
 	s.scaleMealSlotsLenient(d)
-	RecomputeDayTotalsWithMargin(d, s.mealMarginPercentUnlocked())
+	margin := s.mealMarginPercentUnlocked()
+	CalibrateMealSlotsFromRawTotals(d, margin)
+	CalibrateDayTotalsFromLegacy(d, margin)
+	RecomputeDayTotalsWithMargin(d, margin)
 }
 
 func todayAthens() string {
@@ -1110,7 +1119,7 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool) 
 			it.Name = f.Name
 		}
 		kcal100, sod100 := nutrientsForFood(f)
-		if kcal100 != nil && it.Kcal == 0 {
+		if kcal100 != nil && (it.Kcal == 0 || stalePer100KcalLine(it, *kcal100)) {
 			it.Kcal = mealItemKcalFromFood(it, f, kcal100)
 		}
 		if sod100 != nil && it.SodiumMg == 0 {
@@ -1179,13 +1188,28 @@ func scaleItemFromFoodWithCatalog(it *MealItem, catalog []Food, byAlias map[stri
 		it.Name = f.Name
 	}
 	kcal100, sod100 := nutrientsForFood(f)
-	if kcal100 != nil && it.Kcal == 0 {
+	applyCatalogMacrosToItem(it, f, kcal100, sod100)
+	return nil
+}
+
+func applyCatalogMacrosToItem(it *MealItem, f *Food, kcal100, sod100 *float64) {
+	if kcal100 != nil && (it.Kcal == 0 || stalePer100KcalLine(it, *kcal100)) {
 		it.Kcal = mealItemKcalFromFood(it, f, kcal100)
 	}
 	if sod100 != nil && it.SodiumMg == 0 {
 		it.SodiumMg = *sod100 * it.Grams / 100
 	}
-	return nil
+}
+
+// applyCatalogMacrosToItemForce overwrites line macros from catalog (import / repair).
+func applyCatalogMacrosToItemForce(it *MealItem, f *Food, kcal100, sod100 *float64) {
+	if kcal100 != nil {
+		it.Kcal = mealItemKcalFromFood(it, f, kcal100)
+	}
+	if sod100 != nil {
+		it.SodiumMg = *sod100 * it.Grams / 100
+	}
+	applyMealItemNoteMacros(it)
 }
 
 func scaleDishWithCatalog(it *MealItem, catalog []Food, byAlias map[string]Food) error {

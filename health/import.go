@@ -318,12 +318,66 @@ var (
 	pairRE       = regexp.MustCompile(`~?([\d,.]+)\s*/\s*~?([\d,.]+)`)
 )
 
+// MealRawDeclaresMargin is true when the meal cell ends with an explicit +N% margin (= …) total.
+func MealRawDeclaresMargin(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	return raw != "" && mealMarginRE.MatchString(raw)
+}
+
+// ShouldApplyMealSlotMargin applies +margin to catalog line sums unless the markdown cell
+// already ends with an unmargined **~mg / ~kcal** total (early-month logs). Empty raw (UI/API) still gets margin.
+func ShouldApplyMealSlotMargin(meal *MealSlot, marginPercent float64) bool {
+	if meal == nil || marginPercent <= 0 {
+		return false
+	}
+	raw := strings.TrimSpace(meal.Raw)
+	if raw == "" {
+		return true
+	}
+	if MealRawDeclaresMargin(raw) {
+		return true
+	}
+	if mealTotalRE.MatchString(raw) {
+		return false
+	}
+	if mealRawHasTrailingSlotTotal(raw) {
+		return false
+	}
+	return true
+}
+
+// mealRawHasTrailingSlotTotal detects Aug–Oct style cells that end with ~mg / ~kcal (no ** wrapper).
+func mealRawHasTrailingSlotTotal(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	ms := pairRE.FindAllStringSubmatch(raw, -1)
+	if len(ms) == 0 {
+		return false
+	}
+	last := ms[len(ms)-1]
+	sod, kc := parseFloatLoose(last[1]), parseFloatLoose(last[2])
+	if sod <= 0 && kc <= 0 {
+		return false
+	}
+	// Snack cells often append " + 4.66 km" after the total pair — still a declared slot total.
+	if kc > 50 && kc < 8000 {
+		return true
+	}
+	return sod > 50 && kc > 0 && kc < 8000
+}
+
 func parseMealTotalFromRaw(raw string) (sod, kc float64) {
 	if ms := mealMarginRE.FindAllStringSubmatch(raw, -1); len(ms) > 0 {
 		last := ms[len(ms)-1]
 		return parseFloatLoose(last[1]), parseFloatLoose(last[3])
 	}
 	if ms := mealTotalRE.FindAllStringSubmatch(raw, -1); len(ms) > 0 {
+		last := ms[len(ms)-1]
+		return parseFloatLoose(last[1]), parseFloatLoose(last[2])
+	}
+	if ms := pairRE.FindAllStringSubmatch(raw, -1); len(ms) > 0 {
 		last := ms[len(ms)-1]
 		return parseFloatLoose(last[1]), parseFloatLoose(last[2])
 	}
