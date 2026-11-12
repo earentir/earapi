@@ -19,26 +19,6 @@ type StockMovement struct {
 	Note      string  `json:"note,omitempty"`
 }
 
-func stockMovementLabel(m StockMovement) string {
-	switch m.Kind {
-	case "meal":
-		if m.MealDate != "" && m.MealSlot != "" {
-			return fmt.Sprintf("%s %s", m.MealDate, m.MealSlot)
-		}
-		return "meal"
-	case "household":
-		return "household"
-	case "discarded":
-		return "discarded"
-	case "import":
-		return "before import"
-	case "manual":
-		return "manual"
-	default:
-		return m.Kind
-	}
-}
-
 func (s *Store) listStockMovementsUnlocked(lotID string) ([]StockMovement, error) {
 	rows, err := s.db.Query(`SELECT id, lot_id, created_at, meal_date, meal_slot, grams, kind, note
 		FROM stock_movements WHERE user_id = ? AND lot_id = ? ORDER BY created_at ASC, id ASC`,

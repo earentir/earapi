@@ -87,6 +87,13 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 	FOREIGN KEY (user_id, lot_id) REFERENCES stock_lots(user_id, id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_stock_movements_lot ON stock_movements(user_id, lot_id, created_at);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+	user_id TEXT NOT NULL PRIMARY KEY,
+	soft_low_kcal REAL NOT NULL DEFAULT 1500,
+	soft_high_kcal REAL NOT NULL DEFAULT 1700,
+	gain_min_kcal REAL NOT NULL DEFAULT 2200
+);
 `
 
 // OpenSharedDB opens healthdata/health.db for all users.
@@ -123,6 +130,31 @@ func migrateHealthDB(db *sql.DB) error {
 		}
 		_, _ = db.Exec(`UPDATE stock_lots SET active = 0 WHERE remaining_grams <= 0.01`)
 	}
+	if !tableHasColumn(db, "days", "legacy_total_sodium_mg") {
+		if _, err := db.Exec(`ALTER TABLE days ADD COLUMN legacy_total_sodium_mg REAL NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	if !tableHasColumn(db, "days", "legacy_total_kcal") {
+		if _, err := db.Exec(`ALTER TABLE days ADD COLUMN legacy_total_kcal REAL NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	for _, col := range []string{
+		"energy_kj_per_100g",
+		"fat_g_per_100g",
+		"saturates_g_per_100g",
+		"carbs_g_per_100g",
+		"sugars_g_per_100g",
+		"protein_g_per_100g",
+		"salt_g_per_100g",
+	} {
+		if !tableHasColumn(db, "foods", col) {
+			if _, err := db.Exec(`ALTER TABLE foods ADD COLUMN ` + col + ` REAL`); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -132,14 +164,16 @@ func tableHasColumn(db *sql.DB, table, col string) bool {
 		return false
 	}
 	defer rows.Close()
+	found := false
 	for rows.Next() {
 		var cid int
 		var name, ctype string
 		var notnull, pk int
 		var dflt sql.NullString
 		if rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk) == nil && name == col {
-			return true
+			found = true
+			break
 		}
 	}
-	return false
+	return found && rows.Err() == nil
 }

@@ -53,6 +53,7 @@ func (s *Store) PrepareMealSlot(meal *MealSlot, ensureFoods []Food) ([]Food, err
 			return nil, err
 		}
 	}
+	RecomputeMealSlotTotalsFromItems(meal)
 	FinalizeMealTotals(meal)
 	return created, nil
 }

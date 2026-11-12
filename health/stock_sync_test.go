@@ -1,6 +1,9 @@
 package health
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestScaleMealItemFromStockByShortName(t *testing.T) {
 	root := t.TempDir()
@@ -67,6 +70,119 @@ func TestMealSaveDeductsStockByLotID(t *testing.T) {
 	}
 	if len(got.Usage) == 0 {
 		t.Fatal("expected usage ledger line")
+	}
+}
+
+func TestScaleStockLotSelfReferencingPartsNoOverflow(t *testing.T) {
+	root := t.TempDir()
+	db, err := OpenSharedDB(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(db, root, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := 50.0
+	n := 100.0
+	lot, err := st.UpsertStockLot(StockLot{
+		Name:             "Soup-tomato mix (carcass #3)",
+		BatchGrams:       500,
+		RemainingGrams:   500,
+		KcalPer100g:      &k,
+		SodiumMgPer100g:  &n,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lot.Items = []MealItem{{Name: "soup-tomato mix", StockLotID: lot.ID, Grams: 500}}
+	lot, err = st.UpsertStockLot(lot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := MealItem{Name: "soup-tomato", StockLotID: lot.ID, Grams: 200}
+	if err := st.ScaleItemFromFood(&it); err != nil {
+		t.Fatal(err)
+	}
+	if it.Kcal < 95 || it.Kcal > 105 {
+		t.Fatalf("kcal %v want ~100", it.Kcal)
+	}
+}
+
+func TestUpsertStockLotSelfReferencingItemsNoHang(t *testing.T) {
+	root := t.TempDir()
+	db, err := OpenSharedDB(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(db, root, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := 10.0
+	n := 20.0
+	lot, err := st.UpsertStockLot(StockLot{
+		Name: "Soup-tomato mix", BatchGrams: 500, RemainingGrams: 500,
+		KcalPer100g: &k, SodiumMgPer100g: &n,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lot.Items = []MealItem{{Name: "soup-tomato mix", StockLotID: lot.ID, Grams: 500}}
+	done := make(chan error, 1)
+	go func() { _, err := st.UpsertStockLot(lot); done <- err }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("UpsertStockLot hung refreshing batch nutrients")
+	}
+}
+
+func TestGetDayWithSelfReferencingStockLotNoOverflow(t *testing.T) {
+	root := t.TempDir()
+	db, err := OpenSharedDB(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(db, root, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := 50.0
+	n := 100.0
+	lot, err := st.UpsertStockLot(StockLot{
+		Name: "Soup-tomato mix (carcass #3)", BatchGrams: 500, RemainingGrams: 500,
+		KcalPer100g: &k, SodiumMgPer100g: &n,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lot.Items = []MealItem{{Name: "soup-tomato mix", StockLotID: lot.ID, Grams: 500}}
+	lot, err = st.UpsertStockLot(lot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meal := MealSlot{
+		Items: []MealItem{{Name: "soup-tomato", StockLotID: lot.ID, Grams: 200}},
+	}
+	if _, err := st.UpsertMealSlot("2026-11-12", "dinner", meal, true); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		_, ok := st.GetDay("2026-11-12")
+		if !ok {
+			t.Error("expected day")
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("GetDay hung (stock scale recursion?)")
 	}
 }
 

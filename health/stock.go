@@ -145,12 +145,15 @@ func (s *Store) refreshStockLotNutrients(lot *StockLot) {
 		return
 	}
 	if len(lot.Items) > 0 {
-		virtual := MealItem{Name: lot.Name, Grams: lot.BatchGrams, Parts: lot.Items}
-		_ = s.scaleDishUnlocked(&virtual)
-		k := virtual.Kcal / lot.BatchGrams * 100
-		n := virtual.SodiumMg / lot.BatchGrams * 100
-		lot.KcalPer100g = &k
-		lot.SodiumMgPer100g = &n
+		virtual := MealItem{Name: lot.Name, Grams: lot.BatchGrams, Parts: cloneStockRecipeParts(*lot)}
+		active := map[string]bool{lot.ID: true}
+		_ = s.scaleDishUnlocked(&virtual, active)
+		if virtual.Kcal > 0 || virtual.SodiumMg > 0 {
+			k := virtual.Kcal / lot.BatchGrams * 100
+			n := virtual.SodiumMg / lot.BatchGrams * 100
+			lot.KcalPer100g = &k
+			lot.SodiumMgPer100g = &n
+		}
 		return
 	}
 	if nk, ns := parseNutrientsFromNotes(lot.Notes); nk != nil || ns != nil {
@@ -379,12 +382,6 @@ func (s *Store) SetStockLotActive(id string, active bool) (*StockLot, error) {
 	return &out, nil
 }
 
-func (s *Store) applyStockRemaining(id string, grams float64, active ...bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.applyStockRemainingUnlocked(id, grams, active...)
-}
-
 func (s *Store) applyStockRemainingUnlocked(id string, grams float64, active ...bool) error {
 	var q string
 	var args []any
@@ -412,10 +409,6 @@ func (s *Store) applyStockRemainingUnlocked(id string, grams float64, active ...
 		return ErrNotFound
 	}
 	return nil
-}
-
-func (s *Store) setStockRemaining(id string, grams float64) error {
-	return s.applyStockRemaining(id, grams)
 }
 
 func mealItemFromStockLot(lot StockLot, grams float64) MealItem {

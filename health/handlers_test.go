@@ -67,6 +67,22 @@ func TestHelpAndUI(t *testing.T) {
 	if !bytes.Contains(w.Body.Bytes(), []byte("Health tracker")) {
 		t.Fatalf("ui body: %s", w.Body.String()[:min(200, w.Body.Len())])
 	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health/ui/foods", nil))
+	if w.Code != 200 {
+		t.Fatalf("ui foods route %d", w.Code)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("Health tracker")) {
+		t.Fatalf("ui foods body")
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health/ui/today/2026-11-12", nil))
+	if w.Code != 200 {
+		t.Fatalf("ui today deep route %d", w.Code)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`<base href="/health/ui/"`)) {
+		t.Fatalf("ui today deep route missing base href for static assets")
+	}
 }
 
 func TestLogHTTP(t *testing.T) {

@@ -367,53 +367,6 @@ func stockSubLotNoteSnippet(text, match string) string {
 	return strings.TrimSpace(text[start:end])
 }
 
-func parseYogurtStock(text string, taken map[string]bool) []StockLot {
-	notes := text
-	kcal, sod := parseNutrientsFromNotes(text)
-	batch := 800.0
-	rem := 600.0
-	if m := stockCountLeft.FindStringSubmatch(text); len(m) >= 2 {
-		n := parseFloatLoose(m[1])
-		rem = n * 200
-	}
-	name := "Yogurt stock (Marata 1.7%)"
-	id := UniqueSlug(name, taken)
-	taken[id] = true
-	lot := StockLot{
-		ID: id, Name: name, PreparedDate: stockParsePreparedDate(text),
-		BatchGrams: batch, RemainingGrams: rem, Notes: notes,
-		KcalPer100g: kcal, SodiumMgPer100g: sod,
-	}
-	stockLotSetActive(&lot, true)
-	return []StockLot{lot}
-}
-
-func parseCerealStock(text string, taken map[string]bool) []StockLot {
-	specs := []struct{ name string }{
-		{"Bonora Action Fruit"},
-		{"Millhouse Super Fruits & Dark Choc"},
-		{"Millhouse Line & Diet Dark Chocolate"},
-	}
-	kcal, sod := parseNutrientsFromNotes(text)
-	var out []StockLot
-	for _, spec := range specs {
-		id := UniqueSlug(spec.name, taken)
-		taken[id] = true
-		row := StockLot{
-			ID: id, Name: spec.name, PreparedDate: stockParsePreparedDate(text),
-			BatchGrams: 375, RemainingGrams: 375, Notes: text,
-			KcalPer100g: kcal, SodiumMgPer100g: sod,
-		}
-		stockLotSetActive(&row, true)
-		out = append(out, row)
-	}
-	for i := range out {
-		out[i].KcalPer100g = kcal
-		out[i].SodiumMgPer100g = sod
-	}
-	return out
-}
-
 func filterStockFromFoods(foods []Food) []Food {
 	var out []Food
 	for _, f := range foods {
@@ -461,6 +414,42 @@ func skipFoodBulletForCatalog(text string) bool {
 		return true
 	}
 	if strings.HasPrefix(low, "sep 1 batch split:") {
+		return true
+	}
+	if strings.Contains(low, "rebuy list") {
+		return true
+	}
+	if strings.HasPrefix(low, `"salt" in logs`) || strings.Contains(low, `in logs = fytro`) || strings.HasPrefix(low, "salt in logs means") {
+		return true
+	}
+	if strings.HasPrefix(low, "pansetes / pork belly and feta") {
+		return true
+	}
+	if strings.Contains(low, "log meal lines as") && strings.Contains(low, "rotation table") {
+		return true
+	}
+	if strings.Contains(low, "ready meals (use by name)") {
+		return true
+	}
+	if strings.Contains(low, "ready-meal policy") {
+		return true
+	}
+	if strings.HasPrefix(low, "conditional ready meals") || strings.HasPrefix(low, "conditional:") {
+		return true
+	}
+	if strings.HasPrefix(low, "rejected ready meals") {
+		return true
+	}
+	if strings.HasPrefix(low, "rejected:") && !strings.Contains(low, "label verified") {
+		return true
+	}
+	if strings.HasPrefix(low, "cereals (label") || strings.HasPrefix(low, "cereals note") {
+		return true
+	}
+	if strings.Contains(low, "label-verified ready meals") {
+		return true
+	}
+	if strings.Contains(low, "approved ready-meal rebuy") {
 		return true
 	}
 	return false

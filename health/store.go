@@ -123,8 +123,13 @@ func (s *Store) ReplaceImported(weights []WeighIn, foods []Food, days []Day, sto
 			}
 		}
 	}
-	for _, d := range days {
-		dd := d
+	for i := range days {
+		dd := days[i]
+		if dd.LegacyTotals.Kcal == 0 && dd.LegacyTotals.SodiumMg == 0 &&
+			(dd.Totals.Kcal > 0 || dd.Totals.SodiumMg > 0) {
+			dd.LegacyTotals = dd.Totals
+		}
+		ScaleDayMealsFromCatalog(&dd, foods, stock)
 		RecomputeDayTotals(&dd)
 		if err := saveDayTxUser(tx, uid, &dd); err != nil {
 			return err
@@ -146,17 +151,35 @@ func nullFloat(p *float64) any {
 	return *p
 }
 
+func (s *Store) preserveLegacyTotalsLocked(d *Day) {
+	if d == nil || d.Date == "" {
+		return
+	}
+	if d.LegacyTotals.Kcal > 0 || d.LegacyTotals.SodiumMg > 0 {
+		return
+	}
+	ex, ok := s.readDayUnlocked(d.Date)
+	if !ok {
+		return
+	}
+	if ex.LegacyTotals.Kcal > 0 || ex.LegacyTotals.SodiumMg > 0 {
+		d.LegacyTotals = ex.LegacyTotals
+	}
+}
+
 func saveDayTxUser(tx *sql.Tx, userID string, d *Day) error {
 	if d.Meals == nil {
 		d.Meals = map[string]MealSlot{}
 	}
 	RecomputeDayTotals(d)
-	_, err := tx.Exec(`INSERT INTO days (user_id, date, bp, walking, total_sodium_mg, total_kcal)
-		VALUES (?, ?, ?, ?, ?, ?)
+	_, err := tx.Exec(`INSERT INTO days (user_id, date, bp, walking, total_sodium_mg, total_kcal, legacy_total_sodium_mg, legacy_total_kcal)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, date) DO UPDATE SET
 		  bp=excluded.bp, walking=excluded.walking,
-		  total_sodium_mg=excluded.total_sodium_mg, total_kcal=excluded.total_kcal`,
-		userID, d.Date, d.BP, d.Walking, d.Totals.SodiumMg, d.Totals.Kcal)
+		  total_sodium_mg=excluded.total_sodium_mg, total_kcal=excluded.total_kcal,
+		  legacy_total_sodium_mg=excluded.legacy_total_sodium_mg, legacy_total_kcal=excluded.legacy_total_kcal`,
+		userID, d.Date, d.BP, d.Walking, d.Totals.SodiumMg, d.Totals.Kcal,
+		d.LegacyTotals.SodiumMg, d.LegacyTotals.Kcal)
 	if err != nil {
 		return err
 	}
@@ -179,6 +202,7 @@ func saveDayTxUser(tx *sql.Tx, userID string, d *Day) error {
 }
 
 func (s *Store) saveDayTx(tx *sql.Tx, d *Day) error {
+	s.preserveLegacyTotalsLocked(d)
 	return saveDayTxUser(tx, s.userID, d)
 }
 
@@ -353,7 +377,9 @@ func (s *Store) ListFoods() []Food {
 }
 
 func (s *Store) listFoodsUnlocked() []Food {
-	rows, err := s.db.Query(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes FROM foods WHERE user_id = ? ORDER BY name`, s.userID)
+	rows, err := s.db.Query(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes,
+		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g
+		FROM foods WHERE user_id = ? ORDER BY name`, s.userID)
 	if err != nil {
 		return nil
 	}
@@ -374,19 +400,28 @@ func scanFoods(rows *sql.Rows) []Food {
 
 func scanFoodRow(rows *sql.Rows) (Food, bool) {
 	var f Food
-	var kcal, sod sql.NullFloat64
-	if err := rows.Scan(&f.ID, &f.Name, &kcal, &sod, &f.Notes); err != nil {
+	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt sql.NullFloat64
+	if err := rows.Scan(&f.ID, &f.Name, &kcal, &sod, &f.Notes,
+		&kj, &fat, &sat, &carb, &sugar, &protein, &salt); err != nil {
 		return Food{}, false
 	}
-	if kcal.Valid {
-		v := kcal.Float64
-		f.KcalPer100g = &v
-	}
-	if sod.Valid {
-		v := sod.Float64
-		f.SodiumMgPer100g = &v
-	}
+	assignNullFloat(&f.KcalPer100g, kcal)
+	assignNullFloat(&f.SodiumMgPer100g, sod)
+	assignNullFloat(&f.EnergyKjPer100g, kj)
+	assignNullFloat(&f.FatGPer100g, fat)
+	assignNullFloat(&f.SaturatesGPer100g, sat)
+	assignNullFloat(&f.CarbsGPer100g, carb)
+	assignNullFloat(&f.SugarsGPer100g, sugar)
+	assignNullFloat(&f.ProteinGPer100g, protein)
+	assignNullFloat(&f.SaltGPer100g, salt)
 	return f, true
+}
+
+func assignNullFloat(dst **float64, n sql.NullFloat64) {
+	if n.Valid {
+		v := n.Float64
+		*dst = &v
+	}
 }
 
 func (s *Store) FoodByID(id string) (*Food, bool) {
@@ -480,15 +515,35 @@ func applyFoodPatch(cur *Food, patch Food) {
 	if patch.SodiumMgPer100g != nil {
 		cur.SodiumMgPer100g = patch.SodiumMgPer100g
 	}
+	if patch.EnergyKjPer100g != nil {
+		cur.EnergyKjPer100g = patch.EnergyKjPer100g
+	}
+	if patch.FatGPer100g != nil {
+		cur.FatGPer100g = patch.FatGPer100g
+	}
+	if patch.SaturatesGPer100g != nil {
+		cur.SaturatesGPer100g = patch.SaturatesGPer100g
+	}
+	if patch.CarbsGPer100g != nil {
+		cur.CarbsGPer100g = patch.CarbsGPer100g
+	}
+	if patch.SugarsGPer100g != nil {
+		cur.SugarsGPer100g = patch.SugarsGPer100g
+	}
+	if patch.ProteinGPer100g != nil {
+		cur.ProteinGPer100g = patch.ProteinGPer100g
+	}
+	if patch.SaltGPer100g != nil {
+		cur.SaltGPer100g = patch.SaltGPer100g
+	}
 	if patch.Notes != "" {
 		cur.Notes = patch.Notes
 	}
+	NormalizeFoodLabel(cur)
 }
 
 func (s *Store) writeFoodUnlocked(f Food) error {
-	_, err := s.db.Exec(`UPDATE foods SET name=?, kcal_per_100g=?, sodium_mg_per_100g=?, notes=? WHERE user_id = ? AND id=?`,
-		f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes, s.userID, f.ID)
-	return err
+	return execFoodUpdate(s.db, s.userID, f)
 }
 
 func (s *Store) AddFood(f Food) (Food, error) {
@@ -535,21 +590,8 @@ func (s *Store) UpdateFood(id string, patch Food) (*Food, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if patch.Name != "" {
-		cur.Name = strings.TrimSpace(patch.Name)
-	}
-	if patch.KcalPer100g != nil {
-		cur.KcalPer100g = patch.KcalPer100g
-	}
-	if patch.SodiumMgPer100g != nil {
-		cur.SodiumMgPer100g = patch.SodiumMgPer100g
-	}
-	if patch.Notes != "" {
-		cur.Notes = patch.Notes
-	}
-	_, err := s.db.Exec(`UPDATE foods SET name=?, kcal_per_100g=?, sodium_mg_per_100g=?, notes=? WHERE user_id = ? AND id=?`,
-		cur.Name, nullFloat(cur.KcalPer100g), nullFloat(cur.SodiumMgPer100g), cur.Notes, s.userID, id)
-	if err != nil {
+	applyFoodPatch(cur, patch)
+	if err := execFoodUpdate(s.db, s.userID, *cur); err != nil {
 		return nil, err
 	}
 	return cur, nil
@@ -578,29 +620,33 @@ func (s *Store) FoodCount() int {
 }
 
 func (s *Store) foodByIDUnlocked(id string) (*Food, bool) {
-	row := s.db.QueryRow(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes FROM foods WHERE user_id = ? AND id = ?`, s.userID, id)
+	row := s.db.QueryRow(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes,
+		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g
+		FROM foods WHERE user_id = ? AND id = ?`, s.userID, id)
 	var f Food
-	var kcal, sod sql.NullFloat64
-	if err := row.Scan(&f.ID, &f.Name, &kcal, &sod, &f.Notes); err != nil {
+	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt sql.NullFloat64
+	if err := row.Scan(&f.ID, &f.Name, &kcal, &sod, &f.Notes,
+		&kj, &fat, &sat, &carb, &sugar, &protein, &salt); err != nil {
 		return nil, false
 	}
-	if kcal.Valid {
-		v := kcal.Float64
-		f.KcalPer100g = &v
-	}
-	if sod.Valid {
-		v := sod.Float64
-		f.SodiumMgPer100g = &v
-	}
+	assignNullFloat(&f.KcalPer100g, kcal)
+	assignNullFloat(&f.SodiumMgPer100g, sod)
+	assignNullFloat(&f.EnergyKjPer100g, kj)
+	assignNullFloat(&f.FatGPer100g, fat)
+	assignNullFloat(&f.SaturatesGPer100g, sat)
+	assignNullFloat(&f.CarbsGPer100g, carb)
+	assignNullFloat(&f.SugarsGPer100g, sugar)
+	assignNullFloat(&f.ProteinGPer100g, protein)
+	assignNullFloat(&f.SaltGPer100g, salt)
 	return &f, true
 }
 
 // --- days ---
 
 func (s *Store) readDayUnlocked(date string) (*Day, bool) {
-	row := s.db.QueryRow(`SELECT date, bp, walking, total_sodium_mg, total_kcal FROM days WHERE user_id = ? AND date = ?`, s.userID, date)
+	row := s.db.QueryRow(`SELECT date, bp, walking, total_sodium_mg, total_kcal, legacy_total_sodium_mg, legacy_total_kcal FROM days WHERE user_id = ? AND date = ?`, s.userID, date)
 	var d Day
-	if err := row.Scan(&d.Date, &d.BP, &d.Walking, &d.Totals.SodiumMg, &d.Totals.Kcal); err != nil {
+	if err := row.Scan(&d.Date, &d.BP, &d.Walking, &d.Totals.SodiumMg, &d.Totals.Kcal, &d.LegacyTotals.SodiumMg, &d.LegacyTotals.Kcal); err != nil {
 		return nil, false
 	}
 	d.Meals = map[string]MealSlot{}
@@ -619,25 +665,29 @@ func (s *Store) readDayUnlocked(date string) (*Day, bool) {
 		_ = json.Unmarshal([]byte(itemsJSON), &m.Items)
 		d.Meals[slot] = m
 	}
-	hydrateDayFromRaw(&d)
+	if err := rows.Err(); err != nil {
+		return nil, false
+	}
 	return &d, true
 }
 
 // scaleMealSlotsLenient fills item kcal/sodium from the food catalog when possible (read-only; errors ignored).
+// Caller must not hold s.mu; uses unlocked DB reads only.
 func (s *Store) scaleMealSlotsLenient(d *Day) {
 	if d == nil || d.Meals == nil {
 		return
 	}
+	active := make(map[string]bool)
 	var scale func(*MealItem)
 	scale = func(it *MealItem) {
 		if len(it.Parts) > 0 {
 			for i := range it.Parts {
 				scale(&it.Parts[i])
 			}
-			_ = s.scaleDish(it)
+			_ = s.scaleDishUnlocked(it, active)
 			return
 		}
-		_ = s.ScaleItemFromFood(it)
+		_ = s.scaleItemFromFoodUnlocked(it, active)
 	}
 	for slot, m := range d.Meals {
 		for i := range m.Items {
@@ -647,15 +697,39 @@ func (s *Store) scaleMealSlotsLenient(d *Day) {
 	}
 }
 
+func (s *Store) saveDayLocked(d *Day) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.saveDayTx(tx, d); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) GetDay(date string) (*Day, bool) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	d, ok := s.readDayUnlocked(date)
-	s.mu.Unlock()
 	if !ok {
 		return nil, false
 	}
 	dd := *d
+	if RepairDayMealImportArtifacts(&dd) {
+		foods := s.listFoodsUnlocked()
+		stock, _ := s.listStockLotsUnlocked()
+		rebuildDayMealsFromRaw(&dd, foods, stock)
+		_ = s.saveDayLocked(&dd)
+		return &dd, true
+	}
 	s.scaleMealSlotsLenient(&dd)
+	for slot, m := range dd.Meals {
+		RecomputeMealSlotTotalsFromItems(&m)
+		dd.Meals[slot] = m
+	}
+	RecomputeDayTotals(&dd)
 	return &dd, true
 }
 
@@ -673,6 +747,9 @@ func (s *Store) ListDayDates() []string {
 		if rows.Scan(&d) == nil {
 			dates = append(dates, d)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil
 	}
 	return dates
 }
@@ -887,6 +964,7 @@ func (s *Store) FilterDays(from, to, exactDate, q, slot string, limit int) []Day
 	if err != nil {
 		return nil
 	}
+	defer rows.Close()
 	var dates []string
 	for rows.Next() {
 		var dt string
@@ -895,7 +973,9 @@ func (s *Store) FilterDays(from, to, exactDate, q, slot string, limit int) []Day
 		}
 		dates = append(dates, dt)
 	}
-	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil
+	}
 	var out []Day
 	for _, dt := range dates {
 		d, ok := s.readDayUnlocked(dt)
@@ -960,20 +1040,20 @@ func dayMatchesQuery(d *Day, q string) bool {
 func (s *Store) ScaleItemFromFood(it *MealItem) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.scaleItemFromFoodUnlocked(it)
+	return s.scaleItemFromFoodUnlocked(it, nil)
 }
 
-func (s *Store) scaleItemFromFoodUnlocked(it *MealItem) error {
+func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool) error {
 	if len(it.Parts) > 0 {
-		return s.scaleDishUnlocked(it)
+		return s.scaleDishUnlocked(it, active)
 	}
-	if it.Kcal > 0 && it.SodiumMg > 0 {
-		return nil
+	if it.Grams <= 0 {
+		FillMealItemGramsFromCount(it, s.listFoodsUnlocked())
 	}
 	if it.Grams <= 0 {
 		return nil
 	}
-	if s.scaleItemFromStockUnlocked(it) {
+	if s.scaleItemFromStockUnlockedVis(it, active) {
 		return nil
 	}
 	var f *Food
@@ -1004,20 +1084,14 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem) error {
 	return nil
 }
 
-func (s *Store) scaleDish(it *MealItem) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.scaleDishUnlocked(it)
-}
-
-func (s *Store) scaleDishUnlocked(it *MealItem) error {
+func (s *Store) scaleDishUnlocked(it *MealItem, active map[string]bool) error {
 	var batch, k, n float64
 	for i := range it.Parts {
 		p := &it.Parts[i]
 		if strings.TrimSpace(p.Name) == "" {
 			continue
 		}
-		_ = s.scaleItemFromFoodUnlocked(p)
+		_ = s.scaleItemFromFoodUnlocked(p, active)
 		batch += p.Grams
 		k += p.Kcal
 		n += p.SodiumMg
@@ -1046,9 +1120,6 @@ func (s *Store) scaleDishUnlocked(it *MealItem) error {
 func scaleItemFromFoodWithCatalog(it *MealItem, catalog []Food) error {
 	if len(it.Parts) > 0 {
 		return scaleDishWithCatalog(it, catalog)
-	}
-	if it.Kcal > 0 && it.SodiumMg > 0 {
-		return nil
 	}
 	if it.Grams <= 0 {
 		return nil
@@ -1123,10 +1194,25 @@ func insertWeighInUser(exec sqlExec, userID string, w WeighIn) error {
 	return err
 }
 
+func execFoodUpdate(exec sqlExec, userID string, f Food) error {
+	_, err := exec.Exec(`UPDATE foods SET name=?, kcal_per_100g=?, sodium_mg_per_100g=?, notes=?,
+		energy_kj_per_100g=?, fat_g_per_100g=?, saturates_g_per_100g=?, carbs_g_per_100g=?, sugars_g_per_100g=?, protein_g_per_100g=?, salt_g_per_100g=?
+		WHERE user_id = ? AND id=?`,
+		f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes,
+		nullFloat(f.EnergyKjPer100g), nullFloat(f.FatGPer100g), nullFloat(f.SaturatesGPer100g),
+		nullFloat(f.CarbsGPer100g), nullFloat(f.SugarsGPer100g), nullFloat(f.ProteinGPer100g), nullFloat(f.SaltGPer100g),
+		userID, f.ID)
+	return err
+}
+
 func insertFoodUser(exec sqlExec, userID string, f Food) error {
-	_, err := exec.Exec(`INSERT INTO foods (user_id, id, name, kcal_per_100g, sodium_mg_per_100g, notes)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		userID, f.ID, f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes)
+	NormalizeFoodLabel(&f)
+	_, err := exec.Exec(`INSERT INTO foods (user_id, id, name, kcal_per_100g, sodium_mg_per_100g, notes,
+		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, f.ID, f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes,
+		nullFloat(f.EnergyKjPer100g), nullFloat(f.FatGPer100g), nullFloat(f.SaturatesGPer100g),
+		nullFloat(f.CarbsGPer100g), nullFloat(f.SugarsGPer100g), nullFloat(f.ProteinGPer100g), nullFloat(f.SaltGPer100g))
 	return err
 }
 

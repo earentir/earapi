@@ -8,6 +8,7 @@ import (
 
 var (
 	itemGramsRe       = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*g\b`)
+	itemEggCountRe    = regexp.MustCompile(`(?i)(\d+)\s+eggs?\b`)
 	itemParenGRe      = regexp.MustCompile(`(?i)\((\d+(?:\.\d+)?)\s*g`)
 	itemTimesRe       = regexp.MustCompile(`×\s*(\d+(?:\.\d+)?)`)
 	itemTotalCutRe    = regexp.MustCompile(`(?i)\s*(?:→|->)\s*\*\*`)
@@ -199,6 +200,9 @@ func splitMealChunks(raw string) []string {
 			continue
 		}
 		if itemOnlyTotalRe.MatchString(p) || (strings.HasPrefix(p, "→") && strings.Contains(p, "**")) {
+			if sod, kc := parseMealTotalFromRaw(p); sod >= 400 && kc >= 400 {
+				continue
+			}
 			if len(out) > 0 {
 				out[len(out)-1] += " + " + p
 			}
@@ -207,22 +211,6 @@ func splitMealChunks(raw string) []string {
 		out = append(out, p)
 	}
 	return out
-}
-
-func flattenMealChunk(chunk string) []MealItem {
-	chunk = strings.TrimSpace(chunk)
-	if chunk == "" || itemSkipRawRe.MatchString(chunk) {
-		return nil
-	}
-	if it, ok := parseDishChunk(chunk); ok {
-		if len(it.Parts) > 0 {
-			return []MealItem{it}
-		}
-	}
-	if it, ok := parseOneMealChunk(chunk); ok {
-		return []MealItem{it}
-	}
-	return nil
 }
 
 func parseDishChunk(ch string) (MealItem, bool) {
@@ -280,11 +268,30 @@ func parseOneMealChunk(ch string) (MealItem, bool) {
 			}
 		}
 	}
+	if grams == 0 {
+		if m := itemEggCountRe.FindStringSubmatch(ch); len(m) > 1 {
+			n := parseFloatLoose(m[1])
+			if n > 0 {
+				grams = n * 55
+			}
+		}
+	}
+	count := 0.0
+	if m := itemTimesRe.FindStringSubmatch(ch); len(m) > 1 {
+		count = parseFloatLoose(m[1])
+	}
+	if grams == 0 && count > 0 {
+		if pm := itemParenGRe.FindStringSubmatch(ch); len(pm) > 1 {
+			grams = parseFloatLoose(pm[1])
+		} else if g := itemCountGuessGrams(count, ch); g > 0 {
+			grams = g
+		}
+	}
 	name := itemNameFromChunk(ch)
 	if name == "" {
 		return MealItem{}, false
 	}
-	return MealItem{Name: name, Grams: grams, Note: ch}, true
+	return MealItem{Name: name, Grams: grams, Count: count, Note: ch}, true
 }
 
 func stripChunkForParse(ch string) string {
@@ -294,6 +301,23 @@ func stripChunkForParse(ch string) string {
 	}
 	ch = itemInlinePairRe.ReplaceAllString(ch, "")
 	return strings.TrimSpace(ch)
+}
+
+// itemCountGuessGrams estimates total grams for "wafers ×4" style lines without explicit g.
+func itemCountGuessGrams(n float64, ch string) float64 {
+	if n <= 0 {
+		return 0
+	}
+	low := strings.ToLower(ch)
+	per := 0.0
+	switch {
+	case strings.Contains(low, "wafer"), strings.Contains(low, "rusk"), strings.Contains(low, "bar"),
+		strings.Contains(low, "sachet"), strings.Contains(low, "croissant"), strings.Contains(low, "granola"):
+		per = 10
+	default:
+		return 0
+	}
+	return n * per
 }
 
 func itemNameFromChunk(ch string) string {

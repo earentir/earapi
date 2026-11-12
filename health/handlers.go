@@ -55,6 +55,7 @@ func RegisterRoutes(r *gin.Engine, svc *Service) {
 		p.GET("/import/json/status", svc.handleImportJSONStatus)
 		p.POST("/import/json", svc.handleImportJSON)
 		p.POST("/import/markdown", svc.handleImportMarkdown)
+		p.POST("/import/repair-days", svc.handleRepairDays)
 
 		p.GET("/stock", svc.handleStockList)
 		p.GET("/stock/:id", svc.handleStockGet)
@@ -64,6 +65,9 @@ func RegisterRoutes(r *gin.Engine, svc *Service) {
 		p.POST("/stock/:id/draw", svc.handleStockDraw)
 		p.POST("/stock/:id/adjust", svc.handleStockAdjust)
 		p.PATCH("/stock/:id/active", svc.handleStockActive)
+
+		p.GET("/settings", svc.handleSettingsGet)
+		p.PUT("/settings", svc.handleSettingsPut)
 	}
 }
 
@@ -102,6 +106,8 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"POST /health/v1/foods",
 			"PUT /health/v1/foods/:id",
 			"DELETE /health/v1/foods/:id",
+			"GET /health/v1/settings",
+			"PUT /health/v1/settings  (body: soft_low_kcal, soft_high_kcal, gain_min_kcal)",
 			"GET /health/v1/stock?active=1",
 			"GET /health/v1/stock/:id",
 			"POST /health/v1/stock",
@@ -123,6 +129,7 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"GET /health/v1/import/json/status",
 			"POST /health/v1/import/json?merge=false&source=legacy",
 			"POST /health/v1/import/markdown?replace=true",
+			"POST /health/v1/import/repair-days?from_md=1  (re-parse meal raw, rescale; backfill legacy totals from mddata)",
 		},
 		"examples": gin.H{
 			"log_day": gin.H{
@@ -200,6 +207,32 @@ func (s *Service) handleOverview(c *gin.Context) {
 	}
 	n, _ := strconv.Atoi(c.DefaultQuery("days", "14"))
 	c.JSON(http.StatusOK, st.Overview(n))
+}
+
+func (s *Service) handleSettingsGet(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"settings": st.GetKcalBudgetSettings()})
+}
+
+func (s *Service) handleSettingsPut(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body KcalBudgetSettings
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	out, err := st.PutKcalBudgetSettings(body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"settings": out})
 }
 
 func (s *Service) handleLog(c *gin.Context) {
@@ -819,6 +852,24 @@ func (s *Service) handleImportJSON(c *gin.Context) {
 
 func bundleHasData(b JSONBundle) bool {
 	return len(b.Weights) > 0 || len(b.Foods) > 0 || len(b.Days) > 0
+}
+
+func (s *Service) handleRepairDays(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	fromMD := c.Query("from_md") == "true" || c.Query("from_md") == "1"
+	var mdDays []Day
+	if fromMD {
+		_, _, mdDays, _, _ = ImportFromMDDir(s.Config.MDDataDir)
+	}
+	n, err := st.RepairAllDaysFromStoredRaw(mdDays)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"repaired_days": n, "from_md": fromMD})
 }
 
 func (s *Service) handleImportMarkdown(c *gin.Context) {

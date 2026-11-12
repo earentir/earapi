@@ -11,12 +11,19 @@ type WeighIn struct {
 	KgRaw    string  `json:"kg_raw,omitempty"` // original text when kg was ambiguous
 }
 
-// Food is a catalog reference item.
+// Food is a catalog reference item with EU-style nutrition declaration per 100 g.
 type Food struct {
 	ID              string   `json:"id"`
 	Name            string   `json:"name"`
 	KcalPer100g     *float64 `json:"kcal_per_100g,omitempty"`
 	SodiumMgPer100g *float64 `json:"sodium_mg_per_100g,omitempty"`
+	EnergyKjPer100g *float64 `json:"energy_kj_per_100g,omitempty"`
+	FatGPer100g     *float64 `json:"fat_g_per_100g,omitempty"`
+	SaturatesGPer100g *float64 `json:"saturates_g_per_100g,omitempty"`
+	CarbsGPer100g   *float64 `json:"carbs_g_per_100g,omitempty"`
+	SugarsGPer100g  *float64 `json:"sugars_g_per_100g,omitempty"`
+	ProteinGPer100g *float64 `json:"protein_g_per_100g,omitempty"`
+	SaltGPer100g    *float64 `json:"salt_g_per_100g,omitempty"`
 	Notes           string   `json:"notes,omitempty"`
 }
 
@@ -27,6 +34,7 @@ type MealItem struct {
 	FoodID          string     `json:"food_id,omitempty"`
 	StockLotID      string     `json:"stock_lot_id,omitempty"`
 	Grams           float64    `json:"grams,omitempty"`
+	Count           float64    `json:"count,omitempty"` // units eaten when markdown uses ×N (wafers, bars, …)
 	Kcal            float64    `json:"kcal,omitempty"`
 	SodiumMg        float64    `json:"sodium_mg,omitempty"`
 	KcalPer100g     *float64   `json:"kcal_per_100g,omitempty"`      // create/update catalog on log
@@ -52,11 +60,12 @@ type DayTotals struct {
 
 // Day is one calendar day's eating log.
 type Day struct {
-	Date    string              `json:"date"`
-	Meals   map[string]MealSlot `json:"meals"`
-	Totals  DayTotals           `json:"totals"`
-	BP      string              `json:"bp,omitempty"`
-	Walking string              `json:"walking,omitempty"`
+	Date         string              `json:"date"`
+	Meals        map[string]MealSlot `json:"meals"`
+	Totals       DayTotals           `json:"totals"`                  // summed from items (catalog/stock)
+	LegacyTotals DayTotals           `json:"legacy_totals,omitempty"` // markdown day column; UI hover only
+	BP           string              `json:"bp,omitempty"`
+	Walking      string              `json:"walking,omitempty"`
 }
 
 // ValidMealSlots are accepted slot/type values.

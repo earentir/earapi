@@ -38,7 +38,7 @@ func TestParseStockMarkdown_activeLots(t *testing.T) {
 	if yogurt, ok := names["Yogurt stock (Marata 1.7%)"]; !ok || yogurt < 590 || yogurt > 610 {
 		t.Fatalf("yogurt stock: %v", names)
 	}
-	if soup, ok := names["Soup-tomato mix (carcass #3)"]; !ok || soup < 330 || soup > 350 {
+	if soup, ok := names["soup-tomato mix"]; !ok || soup < 330 || soup > 350 {
 		t.Fatalf("soup-tomato: %v", names)
 	}
 	var bean *StockLot
@@ -51,7 +51,7 @@ func TestParseStockMarkdown_activeLots(t *testing.T) {
 	if bean == nil || bean.BatchGrams < 720 || bean.BatchGrams > 740 {
 		t.Fatalf("bean batch %v", bean)
 	}
-	if bean == nil || len(bean.Items) < 2 {
+	if len(bean.Items) < 2 {
 		t.Fatalf("bean ingredients %v", bean.Items)
 	}
 	if _, ok := names["tikka-rice-chicken mix"]; ok {
@@ -91,8 +91,14 @@ func TestSkipFoodBulletForCatalog(t *testing.T) {
 	if skipFoodBulletForCatalog("**Marata Επιδόρπιο** temporary stock (4 cups)") {
 		t.Fatal("catalog Marata must stay")
 	}
+	if !skipFoodBulletForCatalog("Salt in logs means Fytro unless real salt is explicit") {
+		t.Fatal("expected rule bullet skipped")
+	}
 	if !skipFoodBulletForCatalog("Yellow curry sauce for mush (recipe, Sep 10): batch ~215 mg") {
 		t.Fatal("recipe batch doc should skip")
+	}
+	if !skipFoodBulletForCatalog("Approved ready-meal rebuy list (salt g/100 g): moussaka") {
+		t.Fatal("rebuy list policy should skip")
 	}
 }
 

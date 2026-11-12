@@ -106,10 +106,11 @@ func itemNeedsNutritionLeaf(it MealItem, foods []Food) bool {
 	if !ok || f == nil {
 		return true
 	}
-	if f.KcalPer100g == nil && f.SodiumMgPer100g == nil {
-		return true
-	}
-	return false
+	return !foodHasPer100Nutrition(*f)
+}
+
+func foodHasPer100Nutrition(f Food) bool {
+	return f.KcalPer100g != nil && f.SodiumMgPer100g != nil
 }
 
 // ListNutritionGaps returns catalog and meal items that still need per-100g or item-level nutrients.

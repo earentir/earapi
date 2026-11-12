@@ -192,11 +192,12 @@ func stringsTrimDate(s string) string {
 
 // Overview is a compact snapshot for the UI and for one LLM GET.
 type Overview struct {
-	Today        string   `json:"today"`
-	LatestWeight *WeighIn `json:"latest_weight"`
-	Day          *Day     `json:"day,omitempty"`
-	RecentDays   []Day    `json:"recent_days"`
-	FoodCount    int      `json:"food_count"`
+	Today        string              `json:"today"`
+	LatestWeight *WeighIn            `json:"latest_weight"`
+	Day          *Day                `json:"day,omitempty"`
+	RecentDays   []Day               `json:"recent_days"`
+	FoodCount    int                 `json:"food_count"`
+	Settings     KcalBudgetSettings  `json:"settings"`
 }
 
 func (s *Store) Overview(recentLimit int) Overview {
@@ -212,6 +213,7 @@ func (s *Store) Overview(recentLimit int) Overview {
 		Today:      today,
 		RecentDays: s.FilterDays(from, today, "", "", "", recentLimit),
 		FoodCount:  s.FoodCount(),
+		Settings:   s.GetKcalBudgetSettings(),
 	}
 	if w, ok := s.LatestWeight(); ok {
 		ov.LatestWeight = w

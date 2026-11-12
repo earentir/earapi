@@ -66,11 +66,8 @@ func TestHydrateDayFromRaw(t *testing.T) {
 	if d.BP != "" {
 		t.Fatalf("bp should be cleared, got %q", d.BP)
 	}
-	if d.Meals["dinner"].Kcal != 609 || d.Meals["snack"].Kcal != 926 {
-		t.Fatalf("meals %+v", d.Meals)
-	}
-	if d.Totals.Kcal != 609+926 {
-		t.Fatalf("totals %+v", d.Totals)
+	if d.Meals["dinner"].Kcal != 0 || d.Meals["snack"].Kcal != 0 {
+		t.Fatalf("meal slot totals should not load legacy; meals %+v", d.Meals)
 	}
 }
 
@@ -85,8 +82,8 @@ func TestParseMonthSnippet(t *testing.T) {
 	if days[0].Date != "2026-11-01" {
 		t.Fatalf("date %s", days[0].Date)
 	}
-	if days[0].Totals.Kcal != 857 || days[0].Totals.SodiumMg != 360 {
-		t.Fatalf("totals %+v", days[0].Totals)
+	if days[0].LegacyTotals.Kcal != 857 || days[0].LegacyTotals.SodiumMg != 360 {
+		t.Fatalf("legacy totals %+v", days[0].LegacyTotals)
 	}
 }
 
@@ -125,5 +122,71 @@ func TestImportFromRepoMDData(t *testing.T) {
 	if names == "" {
 		t.Fatal("empty food")
 	}
+	var hasMoussaka bool
+	for _, food := range f {
+		low := strings.ToLower(food.Name)
+		if strings.Contains(low, "rebuy list") || strings.Contains(low, "approved ready-meal rebuy") {
+			t.Fatalf("policy doc must not become a catalog food: %q", food.Name)
+		}
+		if strings.Contains(low, "moussaka ready meal") {
+			hasMoussaka = true
+		}
+	}
+	if !hasMoussaka {
+		t.Fatal("expected Moussaka ready meal from EU table row")
+	}
 	_ = w
+}
+
+func TestCatalogStaplesForNovMeals(t *testing.T) {
+	dir := filepath.Join("..", "mddata")
+	if _, err := os.Stat(dir); err != nil {
+		t.Skip("mddata not present")
+	}
+	_, foods, days, _, err := ImportFromMDDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"EVOO", "Fytro", "soup-tomato mix", "roasted wings", "Marata 1.7%"} {
+		f, ok := BestFoodMatch(foods, n)
+		if !ok {
+			t.Fatalf("%q: no catalog match", n)
+		}
+		if f.KcalPer100g == nil || f.SodiumMgPer100g == nil {
+			t.Fatalf("%q -> %q missing per 100 g", n, f.Name)
+		}
+	}
+	var d *Day
+	for i := range days {
+		if days[i].Date == "2026-11-12" {
+			d = &days[i]
+			break
+		}
+	}
+	if d == nil {
+		t.Fatal("expected 2026-11-12 in month logs")
+	}
+	var walk func(items []MealItem, slot string)
+	walk = func(items []MealItem, slot string) {
+		for _, it := range items {
+			if len(it.Parts) > 0 {
+				walk(it.Parts, slot)
+				continue
+			}
+			name := strings.TrimSpace(it.Name)
+			if name == "" || it.Grams <= 0 {
+				continue
+			}
+			f, ok := BestFoodMatch(foods, name)
+			if !ok {
+				t.Fatalf("%s unmatched: %q", slot, name)
+			}
+			if f.KcalPer100g == nil || f.SodiumMgPer100g == nil {
+				t.Fatalf("%s %q -> %q incomplete per 100 g", slot, name, f.Name)
+			}
+		}
+	}
+	for slot, m := range d.Meals {
+		walk(m.Items, slot)
+	}
 }

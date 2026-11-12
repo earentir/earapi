@@ -32,6 +32,9 @@ func (s *Store) ListFoodAliases() []FoodAlias {
 		}
 		out = append(out, a)
 	}
+	if err := rows.Err(); err != nil {
+		return nil
+	}
 	return out
 }
 
@@ -68,24 +71,6 @@ func (s *Store) AddFoodAlias(foodID, alias string) (FoodAlias, error) {
 		return FoodAlias{}, err
 	}
 	return FoodAlias{Alias: norm, FoodID: foodID}, nil
-}
-
-func foodByAliasList(aliases []FoodAlias, foods []Food, name string) (*Food, bool) {
-	norm := normalizeFoodAlias(name)
-	if norm == "" {
-		return nil, false
-	}
-	for _, a := range aliases {
-		if normalizeFoodAlias(a.Alias) == norm {
-			for i := range foods {
-				if foods[i].ID == a.FoodID {
-					f := foods[i]
-					return &f, true
-				}
-			}
-		}
-	}
-	return nil, false
 }
 
 func ensureFoodAliasTable(db *sql.DB) error {

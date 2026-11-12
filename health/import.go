@@ -66,7 +66,6 @@ func extractYearFromMonthFilename(name string) int {
 func parseWeightMarkdown(content string, defaultYear int) []WeighIn {
 	lines := strings.Split(content, "\n")
 	var out []WeighIn
-	var lastMonth int
 	dayCount := map[string]int{}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -82,10 +81,7 @@ func parseWeightMarkdown(content string, defaultYear int) []WeighIn {
 		if dateStr == "Date" || kgStr == "kg" {
 			continue
 		}
-		iso, month := parseTrackerDate(dateStr, defaultYear, lastMonth)
-		if month > 0 {
-			lastMonth = month
-		}
+		iso, _ := parseTrackerDate(dateStr, defaultYear)
 		if iso == "" {
 			continue
 		}
@@ -150,7 +146,7 @@ var monthMap = map[string]int{
 	"jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
-func parseTrackerDate(s string, year int, lastMonth int) (string, int) {
+func parseTrackerDate(s string, year int) (string, int) {
 	s = strings.TrimSpace(strings.TrimPrefix(s, "~"))
 	parts := strings.Fields(s)
 	if len(parts) < 2 {
@@ -178,7 +174,7 @@ func parseFoodMarkdown(content string) []Food {
 	inRefTable := false
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.Contains(line, "Reference kcal") {
+		if strings.Contains(line, "Reference kcal") || strings.Contains(line, "Reference per 100 g") {
 			inRefTable = true
 			continue
 		}
@@ -192,21 +188,15 @@ func parseFoodMarkdown(content string) []Food {
 				if name == "" {
 					continue
 				}
-				kcal := parseApproxNumber(cells[1])
-				sod := parseApproxNumber(cells[2])
-				notes := ""
-				if len(cells) > 3 {
-					notes = strings.TrimSpace(cells[3])
+				var f Food
+				if isEUNutritionTableRow(cells) {
+					f = foodFromEUTableCells(cells)
+				} else {
+					f = foodFromLegacyTableCells(cells)
 				}
 				id := UniqueSlug(name, taken)
 				taken[id] = true
-				f := Food{ID: id, Name: name, Notes: notes}
-				if kcal != nil {
-					f.KcalPer100g = kcal
-				}
-				if sod != nil {
-					f.SodiumMgPer100g = sod
-				}
+				f.ID = id
 				out = append(out, f)
 			}
 		}
@@ -229,7 +219,9 @@ func parseFoodMarkdown(content string) []Food {
 			id := UniqueSlug(name, taken)
 			taken[id] = true
 			kcal, sod := parseNutrientsFromNotes(text)
-			out = append(out, Food{ID: id, Name: name, Notes: text, KcalPer100g: kcal, SodiumMgPer100g: sod})
+			f := Food{ID: id, Name: name, Notes: text, KcalPer100g: kcal, SodiumMgPer100g: sod}
+			ApplyLabelFromNotes(&f)
+			out = append(out, f)
 		}
 	}
 	return out
@@ -271,7 +263,7 @@ func parseMonthMarkdown(content string, year int) []Day {
 		if strings.EqualFold(dateRaw, "Date") {
 			continue
 		}
-		iso, _ := parseTrackerDate(dateRaw, year, 0)
+		iso, _ := parseTrackerDate(dateRaw, year)
 		if iso == "" {
 			// try "Nov 1" with only month in file
 			continue
@@ -292,6 +284,13 @@ func parseMonthMarkdown(content string, year int) []Day {
 		for i := 4; i < len(cells); i++ {
 			c := strings.TrimSpace(cells[i])
 			if c == "" {
+				continue
+			}
+			if looksLikeDayTotalColumn(c) {
+				if d.Totals.Kcal == 0 && d.Totals.SodiumMg == 0 {
+					sod, kc := parseDayTotalCell(c)
+					d.Totals = DayTotals{SodiumMg: sod, Kcal: kc}
+				}
 				continue
 			}
 			if looksLikeOnlyTotal(c) {
@@ -402,23 +401,84 @@ func hydrateDayFromRaw(d *Day) {
 		return
 	}
 	relocateMisplacedMealText(d)
+	if d.LegacyTotals.Kcal == 0 && d.LegacyTotals.SodiumMg == 0 &&
+		(d.Totals.Kcal > 0 || d.Totals.SodiumMg > 0) {
+		d.LegacyTotals = d.Totals
+	}
 	for _, slot := range []string{"lunch", "dinner", "snack"} {
 		m := d.Meals[slot]
-		if (m.Kcal == 0 && m.SodiumMg == 0) && strings.TrimSpace(m.Raw) != "" {
-			sod, kc := parseMealTotalFromRaw(m.Raw)
-			m.SodiumMg = sod
-			m.Kcal = kc
-		}
-		if strings.TrimSpace(m.Raw) != "" && MealItemsNeedReparse(m.Items, m.Raw) {
+		before := m.Raw
+		m.Raw = stripMisplacedDayTotalFromRaw(m.Raw)
+		if strings.TrimSpace(m.Raw) != "" && (m.Raw != before || MealItemsNeedReparse(m.Items, m.Raw)) {
 			if parsed := ParseMealStructureFromRaw(m.Raw); len(parsed) > 0 {
 				m.Items = parsed
 			}
 		}
 		d.Meals[slot] = m
 	}
-	if d.Totals.Kcal == 0 && d.Totals.SodiumMg == 0 {
-		RecomputeDayTotals(d)
+}
+
+var mealRawDayTotalSuffixRE = regexp.MustCompile(`(?i)\s*\+\s*(?:→|->)?\s*\*\*~?[\d,.]+\s*/\s*~?[\d,.]+\*\*.*$`)
+
+// stripMisplacedDayTotalFromRaw removes a day-total column wrongly appended to a meal cell during import.
+func stripMisplacedDayTotalFromRaw(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
 	}
+	return strings.TrimSpace(mealRawDayTotalSuffixRE.ReplaceAllString(raw, ""))
+}
+
+func mealRawHasMisplacedDayTotalSuffix(raw string) bool {
+	return stripMisplacedDayTotalFromRaw(raw) != strings.TrimSpace(raw)
+}
+
+// looksLikeDayTotalColumn detects the day-total markdown column even with long trailing notes (over 48 chars).
+func looksLikeDayTotalColumn(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || !strings.Contains(s, "**") {
+		return false
+	}
+	sod, kc := parseDayTotalCell(s)
+	return sod >= 400 && kc >= 400
+}
+
+// DayHasMisplacedDayTotalInMeals reports import artifact where the day total column was glued to a meal slot.
+func DayHasMisplacedDayTotalInMeals(d *Day) bool {
+	if d == nil {
+		return false
+	}
+	for _, m := range d.Meals {
+		if mealRawHasMisplacedDayTotalSuffix(m.Raw) {
+			return true
+		}
+	}
+	return false
+}
+
+// RepairDayMealImportArtifacts strips misplaced day totals and re-parses items when needed.
+func RepairDayMealImportArtifacts(d *Day) bool {
+	if d == nil {
+		return false
+	}
+	changed := false
+	for slot, m := range d.Meals {
+		clean := stripMisplacedDayTotalFromRaw(m.Raw)
+		if clean != m.Raw {
+			m.Raw = clean
+			changed = true
+		}
+		if strings.TrimSpace(m.Raw) != "" {
+			if changed || MealItemsNeedReparse(m.Items, m.Raw) {
+				if parsed := ParseMealStructureFromRaw(m.Raw); len(parsed) > 0 {
+					m.Items = parsed
+					changed = true
+				}
+			}
+		}
+		d.Meals[slot] = m
+	}
+	return changed
 }
 
 func parseFloatLoose(s string) float64 {
