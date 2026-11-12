@@ -33,3 +33,4 @@ earapi
 health/ui/*
 !health/ui/.gitkeep
 tools/tailwindcss
+.vscode/settings.json
