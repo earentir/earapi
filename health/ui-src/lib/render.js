@@ -1,8 +1,7 @@
 import { AUTH_KEY, EMPTY_CELL, SLOTS } from "./constants.js";
 import { NAV_TABS, applyRouteToState, pathForTab, pushAppRoute, resolveTodayDate } from "./route.js";
 import { dayCardStatus, dayCardListDotMarkup, dayStatusDotMarkup } from "./day-status.js";
-import { legacyTotalMismatch } from "./legacy-totals.js";
-import { mealEnergyBand } from "./meal-energy-band.js";
+import { catalogLegacyDeltaBand } from "./legacy-diff-bands.js";
 import { applyMealMarginTotals, mealMarginPercent } from "./meal-margin.js";
 import { themeSelectHtml, saveTheme } from "./theme.js";
 import { state, emptyItem, emptySlot, emptyDraft, emptyStockSet, emptyStockForm } from "./state.js";
@@ -200,9 +199,27 @@ function legacyTotalsHoverWrap(innerHtml, d) {
   </span>`;
 }
 
-function legacyTotalValMarkup(n, mismatch) {
-  const cls = mismatch ? " legacy-total-val--mismatch" : "";
-  return `<span class="legacy-total-val${cls}">${fmt(n, 0)}</span>`;
+function dayHeaderTotalMarkup(d, totals) {
+  const leg = d?.legacy_totals;
+  const kcal = Number(totals?.kcal) || 0;
+  const sod = Number(totals?.sodium_mg) || 0;
+  const bands = state.kcalBudget;
+  const kBand = catalogLegacyDeltaBand(kcal, leg?.kcal, bands);
+  const naBand = catalogLegacyDeltaBand(sod, leg?.sodium_mg, bands);
+  return `<span class="mono day-card-head-totals"><span class="meal-band-kcal ${kBand}">${fmt(kcal, 0)} kcal</span>, <span class="meal-band-na ${naBand}">${fmt(sod, 0)} mg Na</span></span>`;
+}
+
+function dayPanelEnergyMarkup(totals, d) {
+  const leg = d?.legacy_totals;
+  const kcal = Number(totals?.kcal) || 0;
+  const sod = Number(totals?.sodium_mg) || 0;
+  const bands = state.kcalBudget;
+  const kBand = catalogLegacyDeltaBand(kcal, leg?.kcal, bands);
+  const naBand = catalogLegacyDeltaBand(sod, leg?.sodium_mg, bands);
+  return {
+    kcal: `<span class="stat-value mono"><span class="meal-band-kcal ${kBand}">${fmt(kcal, 0)}</span> <span class="stat-unit">kcal</span></span>`,
+    sodium: `<span class="stat-value mono"><span class="meal-band-na ${naBand}">${fmt(sod, 0)}</span> <span class="stat-unit">mg</span></span>`,
+  };
 }
 
 function renderDayKcalBar(kcal) {
@@ -249,15 +266,15 @@ function daySummaryPanel() {
         <span class="stat-value mono">${fmt(weight.kg, 1)} <span class="stat-unit">kg</span></span>
       </div>`
     : "";
-  const legMm = legacyTotalMismatch(state.day, totals);
+  const panelTotals = dayPanelEnergyMarkup(totals, state.day);
   const headEnergySodium = `<div class="day-panel-head-stats" aria-label="Day totals">
       <div class="day-stat">
         <span class="stat-label">Energy</span>
-        ${legacyTotalsHoverWrap(`<span class="stat-value mono">${legacyTotalValMarkup(totals.kcal, legMm.kcal)} <span class="stat-unit">kcal</span></span>`, state.day)}
+        ${legacyTotalsHoverWrap(panelTotals.kcal, state.day)}
       </div>
       <div class="day-stat">
         <span class="stat-label">Sodium</span>
-        ${legacyTotalsHoverWrap(`<span class="stat-value mono">${legacyTotalValMarkup(totals.sodium_mg, legMm.sodium)} <span class="stat-unit">mg</span></span>`, state.day)}
+        ${legacyTotalsHoverWrap(panelTotals.sodium, state.day)}
       </div>
     </div>`;
   const bodyStats = (weightRow || statusRow)
@@ -787,9 +804,8 @@ function mealLine(slot, d) {
   const m = d.meals?.[slot];
   const text = mealText(m);
   if (!text) return "";
-  const band = mealEnergyBand(m?.kcal);
   const totRow = m && (m.kcal || m.sodium_mg)
-    ? `<div class="meal-line-totals mono ${band}"><span class="meal-band-kcal">${fmt(m.kcal, 0)} kcal</span>, <span class="meal-band-na">${fmt(m.sodium_mg, 0)} mg</span></div>`
+    ? `<div class="meal-line-totals mono muted">${fmt(m.kcal, 0)} kcal, ${fmt(m.sodium_mg, 0)} mg</div>`
     : "";
   return `<div class="meal-line"><span class="slot-lab">${slot}</span><div class="meal-line-main"><div class="meal-line-text">${esc(text)}</div>${totRow}</div></div>`;
 }
@@ -827,11 +843,7 @@ function daysView() {
     const meta = [d.bp ? `BP ${esc(d.bp)}` : "", d.walking ? esc(d.walking) : ""].filter(Boolean).join(", ");
     const st = dayStatusForList(d);
     const kbar = renderDayKcalBar(d.totals?.kcal);
-    const legMm = legacyTotalMismatch(d, d.totals);
-    const totalsLine = legacyTotalsHoverWrap(
-      `<span class="mono day-card-head-totals">${legacyTotalValMarkup(d.totals?.kcal, legMm.kcal)} kcal, ${legacyTotalValMarkup(d.totals?.sodium_mg, legMm.sodium)} mg Na</span>`,
-      d,
-    );
+    const totalsLine = legacyTotalsHoverWrap(dayHeaderTotalMarkup(d, d.totals), d);
     return `<article class="day-card clickable${kbar.hostClass}" data-open-day="${esc(d.date)}" role="button" tabindex="0">
       ${kbar.bar}
       <div class="day-card-head">
@@ -1377,6 +1389,22 @@ function settingsView() {
       <p class="muted" style="font-size:0.82rem;margin:0.55rem 0 0">Seeded from your Energy baseline notes: 1,500-1,700 kcal target; 2,200 kcal gain line.</p>
     </section>
     <section class="card" style="margin-top:0.85rem">
+      <h2>Markdown diff bands (day header)</h2>
+      <p class="muted form-modal-hint" style="margin-top:0">Colors the day total kcal and mg Na on Days and Today by <span class="mono">|catalog − markdown day log|</span>. Same scale for energy and sodium.</p>
+      <ul class="kcal-band-legend muted">
+        <li><span class="kcal-band-swatch kcal-band-swatch--green" aria-hidden="true"></span> Green: diff &lt; green limit</li>
+        <li><span class="kcal-band-swatch kcal-band-swatch--yellow" aria-hidden="true"></span> Yellow: diff &lt; yellow limit</li>
+        <li><span class="kcal-band-swatch kcal-band-swatch--orange" aria-hidden="true"></span> Orange: diff &lt; orange limit</li>
+        <li><span class="kcal-band-swatch kcal-band-swatch--red" aria-hidden="true"></span> Red: diff ≥ orange limit</li>
+      </ul>
+      <div class="row settings-kcal-fields" style="flex-wrap:wrap;gap:0.65rem;margin-top:0.85rem">
+        <label class="field"><span>Green below</span><input id="set-diff-green" type="number" min="1" step="1" value="${esc(String(b.legacy_diff_green_lt))}"></label>
+        <label class="field"><span>Yellow below</span><input id="set-diff-yellow" type="number" min="2" step="1" value="${esc(String(b.legacy_diff_yellow_lt))}"></label>
+        <label class="field"><span>Orange below</span><input id="set-diff-orange" type="number" min="3" step="1" value="${esc(String(b.legacy_diff_orange_lt))}"></label>
+      </div>
+      <p class="muted" style="font-size:0.82rem;margin:0.55rem 0 0">Defaults: 100 / 200 / 300 (e.g. 92 kcal off → green).</p>
+    </section>
+    <section class="card" style="margin-top:0.85rem">
       <h2>Meal total margin</h2>
       <p class="muted form-modal-hint" style="margin-top:0">Adds this percent to each meal slot total (lunch, dinner, snack) after catalog math, same as your markdown <span class="mono">+10% margin</span> lines. Day total is the sum of those meal totals. Item lines stay unpadded.</p>
       <label class="field" style="max-width:12rem;margin-top:0.65rem">
@@ -1408,6 +1436,9 @@ async function saveKcalBudgetFromForm() {
     soft_high_kcal: Number(document.getElementById("set-soft-high")?.value),
     gain_min_kcal: Number(document.getElementById("set-gain-min")?.value),
     meal_margin_percent: Number(document.getElementById("set-meal-margin")?.value),
+    legacy_diff_green_lt: Number(document.getElementById("set-diff-green")?.value),
+    legacy_diff_yellow_lt: Number(document.getElementById("set-diff-yellow")?.value),
+    legacy_diff_orange_lt: Number(document.getElementById("set-diff-orange")?.value),
   };
   const data = await api("/settings", { method: "PUT", body: JSON.stringify(body) });
   state.kcalBudget = mergedKcalBudget(data.settings);

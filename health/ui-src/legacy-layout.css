@@ -241,10 +241,7 @@ td.mono, .date-iso { white-space: nowrap; }
 .day-kcal-bar--orange { background: #e6940a; }
 .day-kcal-bar--red { background: var(--warn, #f87171); }
 
-/* Computed day total differs from markdown day column (hover). */
-.legacy-total-val--mismatch {
-  color: #e6940a;
-}
+/* Day header kcal/Na bands: catalog vs markdown gap (<100 green …). */
 .day-card:hover { border-color: var(--accent-dim); }
 
 .day-card-dot-wrap {
@@ -469,15 +466,16 @@ td.mono, .date-iso { white-space: nowrap; }
   font-size: 0.82rem;
   margin-top: 0.12rem;
 }
-.meal-band--muted { color: var(--muted); }
-.meal-band--green .meal-band-kcal,
-.meal-band--green .meal-band-na { color: var(--ok, #3ecf8e); }
-.meal-band--yellow .meal-band-kcal,
-.meal-band--yellow .meal-band-na { color: #d4b429; }
-.meal-band--orange .meal-band-kcal,
-.meal-band--orange .meal-band-na { color: #e6940a; }
-.meal-band--red .meal-band-kcal,
-.meal-band--red .meal-band-na { color: var(--warn, #f87171); }
+.meal-band-kcal.meal-band--muted,
+.meal-band-na.meal-band--muted { color: var(--muted); }
+.meal-band-kcal.meal-band--green,
+.meal-band-na.meal-band--green { color: var(--ok, #3ecf8e); }
+.meal-band-kcal.meal-band--yellow,
+.meal-band-na.meal-band--yellow { color: #d4b429; }
+.meal-band-kcal.meal-band--orange,
+.meal-band-na.meal-band--orange { color: #e6940a; }
+.meal-band-kcal.meal-band--red,
+.meal-band-na.meal-band--red { color: var(--warn, #f87171); }
 .days-filter-bar {
   display: flex;
   flex-wrap: wrap;
