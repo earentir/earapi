@@ -207,9 +207,8 @@ func saveDayTxUser(tx *sql.Tx, userID string, d *Day, marginPercent float64) err
 	return nil
 }
 
-func (s *Store) saveDayTx(tx *sql.Tx, d *Day) error {
-	s.preserveLegacyTotalsLocked(d)
-	return saveDayTxUser(tx, s.userID, d, s.mealMarginPercentUnlocked())
+func (s *Store) saveDayTx(tx *sql.Tx, d *Day, marginPercent float64) error {
+	return saveDayTxUser(tx, s.userID, d, marginPercent)
 }
 
 // --- weight ---
@@ -704,12 +703,14 @@ func (s *Store) scaleMealSlotsLenient(d *Day) {
 }
 
 func (s *Store) saveDayLocked(d *Day) error {
+	s.preserveLegacyTotalsLocked(d)
+	margin := s.mealMarginPercentUnlocked()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := s.saveDayTx(tx, d); err != nil {
+	if err := s.saveDayTx(tx, d, margin); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -771,12 +772,14 @@ func (s *Store) PatchDayMeta(date string, bp, walking *string) (*Day, error) {
 	if walking != nil {
 		d.Walking = *walking
 	}
+	s.preserveLegacyTotalsLocked(d)
+	margin := s.mealMarginPercentUnlocked()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	if err := s.saveDayTx(tx, d); err != nil {
+	if err := s.saveDayTx(tx, d, margin); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -794,12 +797,14 @@ func (s *Store) PutDay(d Day) error {
 	if d.Meals == nil {
 		d.Meals = map[string]MealSlot{}
 	}
+	s.preserveLegacyTotalsLocked(&d)
+	margin := s.mealMarginPercentUnlocked()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := s.saveDayTx(tx, &d); err != nil {
+	if err := s.saveDayTx(tx, &d, margin); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -858,12 +863,14 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 	if err := s.syncStockForMealSlotChange(date, slot, oldItems, mealAfter.Items); err != nil {
 		return nil, err
 	}
+	s.preserveLegacyTotalsLocked(d)
+	margin := s.mealMarginPercentUnlocked()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	if err := s.saveDayTx(tx, d); err != nil {
+	if err := s.saveDayTx(tx, d, margin); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -895,12 +902,14 @@ func (s *Store) DeleteMealSlot(date, slot string) (*Day, error) {
 	if err := s.syncStockForMealSlotChange(date, slot, oldItems, nil); err != nil {
 		return nil, err
 	}
+	s.preserveLegacyTotalsLocked(d)
+	margin := s.mealMarginPercentUnlocked()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	if err := s.saveDayTx(tx, d); err != nil {
+	if err := s.saveDayTx(tx, d, margin); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
