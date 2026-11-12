@@ -1,7 +1,7 @@
 package imdb
 
 // titleFields is the projection shared by every list query. Field names here are
-// exact and fragile — note in particular `titleGenres { genres { genre { text } } }`,
+// exact and fragile - note in particular `titleGenres { genres { genre { text } } }`,
 // which is NOT the more obvious `genres { genres { genre } }` (that fails schema
 // validation).
 const titleFields = `

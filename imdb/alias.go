@@ -123,7 +123,7 @@ func ExtractTitleIDs(html string) []string {
 // PageSolved reports whether a rendered page is past the WAF challenge and
 // carries watchlist content. Used as the browser's readiness predicate.
 //
-// Readiness is decided purely on the signals we actually need — a resolvable
+// Readiness is decided purely on the signals we actually need - a resolvable
 // id, or some titles. An earlier version also required the document to exceed a
 // byte threshold, which rejected small-but-complete pages and made the whole
 // path untestable; the signal checks below already exclude a bare stub.
@@ -144,14 +144,14 @@ func PageSolved(html string) bool {
 // ResolveAlias turns a p.* profile link into something fetchable, by rendering
 // the page in a browser and reading the real list id out of it.
 //
-// Returns the resolved reference, or — when the page yields no id but does list
-// titles — the title ids as a fallback (ref.Kind will be KindCSV to signal that
+// Returns the resolved reference, or - when the page yields no id but does list
+// titles - the title ids as a fallback (ref.Kind will be KindCSV to signal that
 // the caller should hydrate them individually).
 func (c *Client) ResolveAlias(ctx context.Context, alias string) (ListRef, []string, error) {
 	if c.Pages == nil {
 		return ListRef{}, nil, newErr(ErrKindProfileAlias,
 			"anonymised IMDb profile links need a browser to open",
-			"Install Google Chrome, Chromium, Edge or Brave and try again — or use "+
+			"Install Google Chrome, Chromium, Edge or Brave and try again - or use "+
 				"your watchlist's CSV export instead.", nil)
 	}
 

@@ -3,8 +3,8 @@
 // IMDb protects its pages with an AWS WAF challenge: the server answers a plain
 // HTTP request with HTTP 202 and a JavaScript proof-of-work that must run before
 // the real page is served. No HTTP client can satisfy that, so anything that
-// needs the rendered page — notably anonymised p.* profile links, which the
-// GraphQL API refuses — goes through a real browser here.
+// needs the rendered page - notably anonymised p.* profile links, which the
+// GraphQL API refuses - goes through a real browser here.
 package browser
 
 import (

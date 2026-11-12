@@ -18,10 +18,10 @@ var (
 // aliasHint is shown only when a p.* link cannot be resolved after all, which
 // normally means no browser is installed. These ids are opaque hashes that
 // IMDb's GraphQL API rejects, and the page behind them is served only after an
-// AWS WAF JavaScript challenge — so resolving one means rendering it in a real
+// AWS WAF JavaScript challenge - so resolving one means rendering it in a real
 // browser (see alias.go). Where that isn't possible, the CSV export still is.
 const aliasHint = "Anonymised IMDb profile links (p.…) have to be opened in a browser. " +
-	"Install Google Chrome, Chromium, Edge or Brave and try again — or open your " +
+	"Install Google Chrome, Chromium, Edge or Brave and try again - or open your " +
 	"watchlist on IMDb, use Export, and drop the CSV here instead."
 
 // ParseRef normalizes user input into a ListRef.
@@ -39,7 +39,7 @@ func ParseRef(input string) (ListRef, error) {
 		return ListRef{}, newErr(ErrKindInvalidInput, "no watchlist link or id given", "", nil)
 	}
 
-	// Bare ids first — cheapest and unambiguous.
+	// Bare ids first - cheapest and unambiguous.
 	switch {
 	case reUser.MatchString(s):
 		return ListRef{Kind: KindWatchlist, ID: s, Label: "Watchlist " + s}, nil

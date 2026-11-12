@@ -253,7 +253,7 @@ func (s *Service) handleGetWatchlist(c *gin.Context) {
 	wl, ok := s.Store.Watchlist(c.Param("id"))
 	if !ok {
 		writeErr(c, http.StatusNotFound, "not_found", "that watchlist is no longer loaded",
-			"Fetch it again — results are kept only while the API process is running.")
+			"Fetch it again - results are kept only while the API process is running.")
 		return
 	}
 	c.JSON(http.StatusOK, wl)
@@ -446,7 +446,7 @@ func (s *Service) resolveJFConn(c *gin.Context, url, apiKey string) (*jellyfin.C
 		if err != nil {
 			return nil, false, err
 		}
-		return conn, false, nil // ephemeral — do not cache index on session
+		return conn, false, nil // ephemeral - do not cache index on session
 	}
 	conn, ok := s.requireConn(c)
 	return conn, ok, nil
@@ -512,7 +512,7 @@ func (s *Service) resolveTitles(watchlistID, compareID, view string, inline []im
 		}
 		return titles, nil
 	}
-	return nil, errors.New("nothing to match — pass titles, watchlist_id, or compare_id")
+	return nil, errors.New("nothing to match - pass titles, watchlist_id, or compare_id")
 }
 
 func (s *Service) libraryIndex(ctx context.Context, conn *jellyfin.Connection, useSession bool) (*jellyfin.LibraryIndex, error) {

@@ -11,8 +11,8 @@ import (
 type MatchMethod string
 
 const (
-	MatchIMDb      MatchMethod = "imdb"       // provider id — exact
-	MatchTitleYear MatchMethod = "title_year" // normalized title + year — fuzzy
+	MatchIMDb      MatchMethod = "imdb"       // provider id - exact
+	MatchTitleYear MatchMethod = "title_year" // normalized title + year - fuzzy
 )
 
 // Match pairs a watchlist title with a library item.
@@ -110,7 +110,7 @@ func foldDiacritic(r rune) (string, bool) {
 // a library's metadata source are common around festival/wide-release splits.
 func yearsCompatible(a, b int) bool {
 	if a == 0 || b == 0 {
-		return true // no year on one side — don't reject on that alone
+		return true // no year on one side - don't reject on that alone
 	}
 	d := a - b
 	return d >= -1 && d <= 1

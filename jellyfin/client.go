@@ -144,7 +144,7 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, body
 			"Generate a fresh key in Dashboard → API Keys and paste it again.", nil)
 	case resp.StatusCode == http.StatusNotFound:
 		return jfErr("upstream", "Jellyfin returned 404 for "+path,
-			"Check the server address — if Jellyfin runs under a subpath, include it.", nil)
+			"Check the server address - if Jellyfin runs under a subpath, include it.", nil)
 	case resp.StatusCode >= 400:
 		msg := strings.TrimSpace(string(data))
 		if len(msg) > 200 {
@@ -162,7 +162,7 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, body
 	return nil
 }
 
-// SystemInfo fetches server identity — the connectivity probe.
+// SystemInfo fetches server identity - the connectivity probe.
 func (c *Client) SystemInfo(ctx context.Context) (*ServerInfo, error) {
 	var info ServerInfo
 	if err := c.do(ctx, http.MethodGet, "/System/Info", nil, nil, &info); err != nil {

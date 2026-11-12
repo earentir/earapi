@@ -547,7 +547,7 @@ curl -sS "https://api.earentir.dev/dmt/v1/timestamp"
 | `unix` / `epoch` | Seconds since Unix epoch |
 | `offset` | Zone for zoneless datetime/components: `+03:00`, `-0500`, `Z`, or minutes east of UTC (default UTC) |
 | `format` / `style` | Discord code `f`/`F`/`d`/`D`/`t`/`T`/`R`, or index `0`–`6` (default `f`) |
-| `complete` | `true`/`1` — round up to the next 5-minute boundary |
+| `complete` | `true`/`1` - round up to the next 5-minute boundary |
 
 Response includes `tag` (selected style), `unix`, and `timestamps` (all seven styles).
 

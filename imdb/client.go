@@ -93,7 +93,7 @@ func (c *Client) post(ctx context.Context, body gqlRequest, out any) error {
 		resp, err := c.HTTP.Do(req)
 		if err != nil {
 			lastErr = err
-			continue // transient network failure — retry
+			continue // transient network failure - retry
 		}
 
 		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
@@ -136,7 +136,7 @@ func classify(errs []gqlError, ref ListRef) error {
 			"Open the list on IMDb and set its visibility to public, then try again.", nil)
 	case code == "RESOURCE_NOT_FOUND" || strings.Contains(msg, "Not found"):
 		return newErr(ErrKindNotFound, "no list found for "+ref.ID,
-			"Double-check the link — the id may be wrong or the list may have been deleted.", nil)
+			"Double-check the link - the id may be wrong or the list may have been deleted.", nil)
 	case code == "BAD_USER_INPUT" && strings.Contains(msg, "Invalid userId"):
 		// Reachable if a caller hand-builds a ListRef; ParseRef normally catches
 		// p.* aliases before we ever get here.
@@ -167,7 +167,7 @@ func (c *Client) FetchList(ctx context.Context, ref ListRef, progress Progress) 
 			wl.Source = ref // keep the link the user actually pasted
 			return wl, nil
 		}
-		// No id on the page, but it did list titles — hydrate those instead.
+		// No id on the page, but it did list titles - hydrate those instead.
 		titles, err := c.FetchTitles(ctx, ids, progress)
 		if err != nil {
 			return nil, err

@@ -102,7 +102,7 @@ const GROUPS = [
         summary: "Top titles for a country / type",
         params: [
           { name: "type", value: "series", hint: "films | series | popular (or movies/tv aliases)" },
-          { name: "country", value: "", hint: "e.g. us — spaces as -" },
+          { name: "country", value: "", hint: "e.g. us - spaces as -" },
         ],
       },
     ],
@@ -428,7 +428,7 @@ function renderEndpoint(ep) {
       } catch {
         /* keep raw */
       }
-      status.textContent = `${res.status} · ${ms}ms`;
+      status.textContent = `${res.status} ${ms}ms`;
       status.className = `status-pill ${res.ok ? "ok" : "bad"}`;
       result.className = res.ok ? "result" : "result error";
       result.textContent = pretty || "(empty body)";
@@ -466,7 +466,7 @@ function renderEndpoint(ep) {
   );
   card.append(head, body);
 
-  // Keep cards collapsed by default — click a row to open the try panel
+  // Keep cards collapsed by default - click a row to open the try panel
   return card;
 }
 

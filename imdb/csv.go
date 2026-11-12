@@ -39,7 +39,7 @@ func ImportCSV(ctx context.Context, r io.Reader, owner string, c *Client, hydrat
 	constIdx, ok := col["const"]
 	if !ok {
 		return nil, newErr(ErrKindInvalidInput, "no \"Const\" column in that CSV",
-			"Use the CSV exactly as IMDb exports it — the Const column holds the title ids.", nil)
+			"Use the CSV exactly as IMDb exports it - the Const column holds the title ids.", nil)
 	}
 
 	at := func(rec []string, name string) string {

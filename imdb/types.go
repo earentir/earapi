@@ -70,7 +70,7 @@ type ErrKind string
 
 const (
 	ErrKindInvalidInput ErrKind = "invalid_input"
-	ErrKindProfileAlias ErrKind = "profile_alias" // p.* link — needs CSV or ur id
+	ErrKindProfileAlias ErrKind = "profile_alias" // p.* link - needs CSV or ur id
 	ErrKindNotFound     ErrKind = "not_found"
 	ErrKindPrivate      ErrKind = "private"
 	ErrKindUpstream     ErrKind = "upstream"
