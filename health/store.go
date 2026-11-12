@@ -774,9 +774,6 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 		if meal.Kcal > 0 {
 			cur.Kcal += meal.Kcal
 		}
-		if meal.KcalMargin > 0 {
-			cur.KcalMargin = meal.KcalMargin
-		}
 		d.Meals[slot] = cur
 	}
 	mealAfter := d.Meals[slot]
@@ -976,10 +973,15 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem) error {
 	if it.Grams <= 0 {
 		return nil
 	}
+	if s.scaleItemFromStockUnlocked(it) {
+		return nil
+	}
 	var f *Food
 	var ok bool
 	if it.FoodID != "" {
 		f, ok = s.foodByIDUnlocked(it.FoodID)
+	} else if byAlias, okAlias := s.foodByAliasUnlocked(it.Name); okAlias {
+		f, ok = byAlias, true
 	} else {
 		f, ok = BestFoodMatch(s.listFoodsUnlocked(), it.Name)
 	}

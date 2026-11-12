@@ -425,11 +425,7 @@ func mealItemFromStockLot(lot StockLot, grams float64) MealItem {
 		Grams:      grams,
 		Note:       "from stock",
 	}
-	if len(lot.Items) > 0 {
-		parts := make([]MealItem, len(lot.Items))
-		copy(parts, lot.Items)
-		it.Parts = parts // dish/set: scaled to grams when meal is prepared
-	} else if lot.KcalPer100g != nil || lot.SodiumMgPer100g != nil {
+	if lot.KcalPer100g != nil || lot.SodiumMgPer100g != nil {
 		it.KcalPer100g = lot.KcalPer100g
 		it.SodiumMgPer100g = lot.SodiumMgPer100g
 	}

@@ -2,6 +2,37 @@ package health
 
 import "testing"
 
+func TestScaleMealItemFromStockByShortName(t *testing.T) {
+	root := t.TempDir()
+	db, err := OpenSharedDB(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(db, root, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := 23.0
+	n := 28.0
+	lot, err := st.UpsertStockLot(StockLot{
+		Name: "Soup-tomato mix (carcass #3)", BatchGrams: 1900, RemainingGrams: 700,
+		KcalPer100g: &k, SodiumMgPer100g: &n,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := MealItem{Name: "soup-tomato mix", Grams: 360}
+	if err := st.ScaleItemFromFood(&it); err != nil {
+		t.Fatal(err)
+	}
+	if it.StockLotID != lot.ID {
+		t.Fatalf("lot id %q want %q", it.StockLotID, lot.ID)
+	}
+	if it.Kcal < 80 || it.Kcal > 85 {
+		t.Fatalf("kcal %v", it.Kcal)
+	}
+}
+
 func TestMealSaveDeductsStockByLotID(t *testing.T) {
 	root := t.TempDir()
 	db, err := OpenSharedDB(root)

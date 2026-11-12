@@ -25,7 +25,6 @@ func TestGapsAndFill(t *testing.T) {
 					{Name: "Perch", Grams: 400},
 					{Name: "Unknown spice", Grams: 5},
 				},
-				KcalMargin: 0.10,
 			},
 		},
 	}

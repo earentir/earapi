@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// FinalizeMealTotals fills slot sodium/kcal from items when not supplied, then applies kcal_margin.
+// FinalizeMealTotals fills slot sodium/kcal from items when not supplied.
 func FinalizeMealTotals(meal *MealSlot) {
 	if meal == nil || len(meal.Items) == 0 {
 		return
@@ -15,17 +15,13 @@ func FinalizeMealTotals(meal *MealSlot) {
 		itemKcal += it.Kcal
 		itemSod += it.SodiumMg
 	}
-	computedKcal := false
 	if meal.Kcal == 0 && itemKcal > 0 {
 		meal.Kcal = itemKcal
-		computedKcal = true
 	}
 	if meal.SodiumMg == 0 && itemSod > 0 {
 		meal.SodiumMg = itemSod
 	}
-	if computedKcal && meal.KcalMargin > 0 {
-		meal.Kcal = meal.Kcal * (1 + meal.KcalMargin)
-	}
+	meal.KcalMargin = 0
 }
 
 // PrepareMealSlot ensures catalog entries, scales item nutrients, and finalizes slot totals.
@@ -45,6 +41,9 @@ func (s *Store) PrepareMealSlot(meal *MealSlot, ensureFoods []Food) ([]Food, err
 	}
 	for i := range meal.Items {
 		it := &meal.Items[i]
+		if it.StockLotID != "" && len(it.Parts) > 0 {
+			it.Parts = nil
+		}
 		added, err := s.ensureItemTree(it)
 		if err != nil {
 			return nil, err

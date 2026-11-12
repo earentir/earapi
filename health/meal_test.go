@@ -2,9 +2,8 @@ package health
 
 import "testing"
 
-func TestFinalizeMealTotalsMargin(t *testing.T) {
+func TestFinalizeMealTotalsSumsItems(t *testing.T) {
 	m := MealSlot{
-		KcalMargin: 0.10,
 		Items: []MealItem{
 			{Kcal: 100, SodiumMg: 50},
 			{Kcal: 200, SodiumMg: 30},
@@ -14,9 +13,8 @@ func TestFinalizeMealTotalsMargin(t *testing.T) {
 	if m.SodiumMg != 80 {
 		t.Fatalf("sodium %v", m.SodiumMg)
 	}
-	wantK := 300.0 * 1.10
-	if m.Kcal < wantK-0.01 || m.Kcal > wantK+0.01 {
-		t.Fatalf("kcal %v want %v", m.Kcal, wantK)
+	if m.Kcal != 300 {
+		t.Fatalf("kcal %v", m.Kcal)
 	}
 }
 
@@ -35,15 +33,13 @@ func TestPrepareMealSlotCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	meal := MealSlot{
-		KcalMargin: 0.10,
-		Items:      []MealItem{{FoodID: "pasta", Grams: 100}},
+		Items: []MealItem{{FoodID: "pasta", Grams: 100}},
 	}
 	if _, err := st.PrepareMealSlot(&meal, nil); err != nil {
 		t.Fatal(err)
 	}
-	wantK := 131.0 * 1.10
-	if meal.Kcal < wantK-0.01 || meal.Kcal > wantK+0.01 {
-		t.Fatalf("kcal %v want %v", meal.Kcal, wantK)
+	if meal.Kcal < 130.99 || meal.Kcal > 131.01 {
+		t.Fatalf("kcal %v", meal.Kcal)
 	}
 	if meal.SodiumMg != 1 {
 		t.Fatalf("sod %v", meal.SodiumMg)

@@ -41,7 +41,7 @@ type MealSlot struct {
 	Items      []MealItem `json:"items,omitempty"`
 	SodiumMg   float64    `json:"sodium_mg,omitempty"`
 	Kcal       float64    `json:"kcal,omitempty"`
-	KcalMargin float64    `json:"kcal_margin,omitempty"` // e.g. 0.10 when applied
+	KcalMargin float64    `json:"kcal_margin,omitempty"` // deprecated; always 0 (ignored)
 }
 
 // DayTotals are summed sodium/kcal for the day.

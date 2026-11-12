@@ -42,7 +42,17 @@ func doJSON(t *testing.T, r *gin.Engine, method, path string, body any) *httptes
 	return w
 }
 
+func requireHealthUIBuilt(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"app.js", "app.css", "index.html"} {
+		if _, err := os.Stat(filepath.Join("ui", name)); err != nil {
+			t.Skip("health UI not built; run `make health-ui` from the repo root")
+		}
+	}
+}
+
 func TestHelpAndUI(t *testing.T) {
+	requireHealthUIBuilt(t)
 	r, _ := testServer(t)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health/v1/help", nil))

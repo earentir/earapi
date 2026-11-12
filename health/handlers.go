@@ -38,6 +38,7 @@ func RegisterRoutes(r *gin.Engine, svc *Service) {
 		p.POST("/foods", svc.handleFoodAdd)
 		p.PUT("/foods/:id", svc.handleFoodUpdate)
 		p.DELETE("/foods/:id", svc.handleFoodDelete)
+		p.POST("/foods/:id/aliases", svc.handleFoodAddAlias)
 
 		p.GET("/days", svc.handleDaysList)
 		p.GET("/days/:date", svc.handleDayGet)
@@ -125,9 +126,8 @@ func (s *Service) handleHelp(c *gin.Context) {
 		},
 		"examples": gin.H{
 			"log_day": gin.H{
-				"date":        "2026-11-11",
-				"kcal_margin": 0.10,
-				"bp":          "128/82",
+				"date": "2026-11-11",
+				"bp":   "128/82",
 				"walking":     "park 40min",
 				"weight":      gin.H{"kg": 142.5, "protocol": true, "note": "morning post-BM"},
 				"meals": []gin.H{
@@ -315,7 +315,31 @@ func (s *Service) handleFoodsList(c *gin.Context) {
 	} else if limit > 0 && len(all) > limit {
 		all = all[:limit]
 	}
-	c.JSON(http.StatusOK, gin.H{"foods": all, "count": len(all)})
+	c.JSON(http.StatusOK, gin.H{
+		"foods":   all,
+		"aliases": st.ListFoodAliases(),
+		"count":   len(all),
+	})
+}
+
+func (s *Service) handleFoodAddAlias(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Alias string `json:"alias"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	out, err := st.AddFoodAlias(c.Param("id"), body.Alias)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"alias": out})
 }
 
 func (s *Service) handleFoodGet(c *gin.Context) {
@@ -581,7 +605,7 @@ func mealFromWriteBody(body mealWriteBody) (string, MealSlot, error) {
 		return "", MealSlot{}, fmt.Errorf("%w: slot required", ErrInvalidInput)
 	}
 	meal := MealSlot{
-		Raw: body.Raw, Items: body.Items, KcalMargin: body.KcalMargin,
+		Raw: body.Raw, Items: body.Items,
 		SodiumMg: body.SodiumMg, Kcal: body.Kcal,
 	}
 	if body.Note != "" {

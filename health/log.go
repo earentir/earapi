@@ -12,7 +12,7 @@ type DayLog struct {
 	Items         []MealItem      `json:"items,omitempty"`
 	Note          string          `json:"note,omitempty"`
 	Raw           string          `json:"raw,omitempty"`
-	KcalMargin    float64         `json:"kcal_margin,omitempty"`
+	KcalMargin    float64         `json:"kcal_margin,omitempty"` // ignored
 	Replace       bool            `json:"replace,omitempty"`
 	Meals         []mealWriteBody `json:"meals,omitempty"`
 	EnsureFoods   []Food          `json:"ensure_foods,omitempty"`

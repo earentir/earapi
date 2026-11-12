@@ -105,6 +105,10 @@ func OpenSharedDB(dataRoot string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := ensureFoodAliasTable(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := migrateHealthDB(db); err != nil {
 		_ = db.Close()
 		return nil, err

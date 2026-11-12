@@ -21,7 +21,7 @@ func TestApplyLogMealAndNewFood(t *testing.T) {
 		Date: "2026-11-11",
 		Meals: []mealWriteBody{
 			{
-				Slot: "lunch", Replace: true, KcalMargin: 0.10,
+				Slot: "lunch", Replace: true,
 				Items: []MealItem{{Name: "Pasta (cooked, no salt)", Grams: 100}},
 			},
 			{
@@ -41,7 +41,7 @@ func TestApplyLogMealAndNewFood(t *testing.T) {
 		t.Fatalf("bp %q", out.Day.BP)
 	}
 	lunch := out.Day.Meals["lunch"]
-	if lunch.Kcal < 144-0.2 || lunch.Kcal > 144.2 {
+	if lunch.Kcal < 130.99 || lunch.Kcal > 131.01 {
 		t.Fatalf("lunch kcal %v", lunch.Kcal)
 	}
 	snack := out.Day.Meals["snack"]

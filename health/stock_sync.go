@@ -53,6 +53,62 @@ func linkOneMealItemToStock(it *MealItem, lots []StockLot) {
 	}
 }
 
+// scaleItemFromStockUnlocked fills kcal/sodium from a linked stock batch (not the Foods catalog).
+func (s *Store) scaleItemFromStockUnlocked(it *MealItem) bool {
+	if it == nil || it.Grams <= 0 {
+		return false
+	}
+	var lot *StockLot
+	if it.StockLotID != "" {
+		if l, ok := s.stockLotByIDUnlocked(it.StockLotID); ok {
+			lot = l
+		}
+	}
+	if lot == nil {
+		lots, err := s.listStockLotsUnlocked()
+		if err != nil || len(lots) == 0 {
+			return false
+		}
+		if id := matchMealItemToStockLot(it.Name, lots); id != "" {
+			it.StockLotID = id
+			if l, ok := s.stockLotByIDUnlocked(id); ok {
+				lot = l
+			}
+		}
+	}
+	if lot == nil {
+		return false
+	}
+	if strings.TrimSpace(it.Name) == "" {
+		it.Name = lot.Name
+	}
+	scaled := false
+	if len(lot.Items) > 0 && len(it.Parts) == 0 {
+		virtual := MealItem{Name: it.Name, Grams: it.Grams, Parts: lot.Items}
+		_ = s.scaleDishUnlocked(&virtual)
+		it.Kcal = virtual.Kcal
+		it.SodiumMg = virtual.SodiumMg
+		scaled = it.Kcal > 0 || it.SodiumMg > 0
+	} else if len(it.Parts) > 0 && it.StockLotID != "" {
+		virtual := MealItem{Name: it.Name, Grams: it.Grams, Parts: it.Parts}
+		_ = s.scaleDishUnlocked(&virtual)
+		it.Kcal = virtual.Kcal
+		it.SodiumMg = virtual.SodiumMg
+		it.Parts = nil
+		scaled = true
+	} else {
+		if lot.KcalPer100g != nil && it.Kcal == 0 {
+			it.Kcal = *lot.KcalPer100g * it.Grams / 100
+			scaled = true
+		}
+		if lot.SodiumMgPer100g != nil && it.SodiumMg == 0 {
+			it.SodiumMg = *lot.SodiumMgPer100g * it.Grams / 100
+			scaled = true
+		}
+	}
+	return scaled
+}
+
 func matchMealItemToStockLot(name string, lots []StockLot) string {
 	n := strings.ToLower(strings.TrimSpace(name))
 	if n == "" {

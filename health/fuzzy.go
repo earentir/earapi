@@ -20,10 +20,27 @@ func RankFoods(foods []Food, q string, limit int) []Food {
 		f     Food
 		score int
 	}
+	pool := foods
+	if qt := tokens(q); len(qt) >= 2 {
+		var strict []Food
+		for _, f := range foods {
+			if allQueryTokensInName(f.Name, q) {
+				strict = append(strict, f)
+			}
+		}
+		if len(strict) == 0 {
+			return nil
+		}
+		pool = strict
+	}
+	minScore := 80
+	if len(tokens(q)) < 2 {
+		minScore = 1
+	}
 	var ranked []scored
-	for _, f := range foods {
+	for _, f := range pool {
 		sc := scoreName(f.Name, q)
-		if sc > 0 {
+		if sc >= minScore {
 			ranked = append(ranked, scored{f, sc})
 		}
 	}
@@ -67,6 +84,22 @@ func scoreName(name, q string) int {
 				if d <= 2 && len(tq) > 2 {
 					overlap += 40 - d*10
 				}
+			}
+		}
+	}
+	if len(qt) > 0 {
+		full := strings.ToLower(cleanFoodDisplayName(name))
+		allIn := true
+		for _, tq := range qt {
+			if !strings.Contains(full, tq) {
+				allIn = false
+				break
+			}
+		}
+		if allIn {
+			boost := 80 + len(qt)*40
+			if overlap < boost {
+				overlap = boost
 			}
 		}
 	}
@@ -130,13 +163,40 @@ func max(a, b int) int {
 	return b
 }
 
+func allQueryTokensInName(name, q string) bool {
+	full := strings.ToLower(cleanFoodDisplayName(name))
+	qt := tokens(q)
+	if len(qt) == 0 {
+		return false
+	}
+	for _, t := range qt {
+		if !strings.Contains(full, t) {
+			return false
+		}
+	}
+	return true
+}
+
 // BestFoodMatch picks the top fuzzy match for scaling nutrients.
 func BestFoodMatch(foods []Food, name string) (*Food, bool) {
 	q := foodMatchQuery(name)
 	if q == "" {
 		return nil, false
 	}
-	top := RankFoods(foods, q, 5)
+	pool := foods
+	if qt := tokens(q); len(qt) > 1 {
+		var strict []Food
+		for _, f := range foods {
+			if allQueryTokensInName(f.Name, q) {
+				strict = append(strict, f)
+			}
+		}
+		if len(strict) == 0 {
+			return nil, false
+		}
+		pool = strict
+	}
+	top := RankFoods(pool, q, 5)
 	if len(top) == 0 {
 		return nil, false
 	}
