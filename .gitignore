@@ -29,7 +29,7 @@ watchlistdata/
 healthdata/
 mddata/
 earapi
-health/ui/app.js
-health/ui/app.css
-health/ui/index.html
+# Built tracker UI (sources in health/ui-src/; make health-ui)
+health/ui/*
+!health/ui/.gitkeep
 tools/tailwindcss
