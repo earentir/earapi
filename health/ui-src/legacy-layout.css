@@ -240,6 +240,11 @@ td.mono, .date-iso { white-space: nowrap; }
 .day-kcal-bar--yellow { background: #d4b429; }
 .day-kcal-bar--orange { background: #e6940a; }
 .day-kcal-bar--red { background: var(--warn, #f87171); }
+
+/* Computed day total differs from markdown day column (hover). */
+.legacy-total-val--mismatch {
+  color: #e6940a;
+}
 .day-card:hover { border-color: var(--accent-dim); }
 
 .day-card-dot-wrap {

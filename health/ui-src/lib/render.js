@@ -1,6 +1,8 @@
 import { AUTH_KEY, EMPTY_CELL, SLOTS } from "./constants.js";
 import { NAV_TABS, applyRouteToState, pathForTab, pushAppRoute, resolveTodayDate } from "./route.js";
 import { dayCardStatus, dayCardListDotMarkup, dayStatusDotMarkup } from "./day-status.js";
+import { legacyTotalMismatch } from "./legacy-totals.js";
+import { applyMealMarginTotals, mealMarginPercent } from "./meal-margin.js";
 import { themeSelectHtml, saveTheme } from "./theme.js";
 import { state, emptyItem, emptySlot, emptyDraft, emptyStockSet, emptyStockForm } from "./state.js";
 import {
@@ -149,11 +151,18 @@ function sumItemMacrosFromDraft(items) {
 
 function slotMealTotals(slot) {
   const items = state.mealDraft?.[slot]?.items;
-  if (!items?.length) {
-    const m = state.day?.meals?.[slot];
-    if (!m || (!m.items?.length && !m.raw)) return null;
+  const margin = mealMarginPercent(state.kcalBudget);
+  if (items?.length) {
+    const base = sumItemMacrosFromDraft(items);
+    if (!base) return null;
+    return applyMealMarginTotals(base, margin);
   }
-  return sumItemMacrosFromDraft(items);
+  const m = state.day?.meals?.[slot];
+  if (!m || (!m.items?.length && !m.raw)) return null;
+  if (m.kcal || m.sodium_mg) {
+    return { kcal: Number(m.kcal) || 0, sodium_mg: Number(m.sodium_mg) || 0 };
+  }
+  return null;
 }
 
 function computedDayTotalsFromDraft() {
@@ -173,7 +182,7 @@ function computedDayTotalsFromDraft() {
 function legacyTotalsTitleForDay(d) {
   const leg = d?.legacy_totals;
   if (!leg || (Number(leg.kcal) <= 0 && Number(leg.sodium_mg) <= 0)) return "";
-  return `Markdown day log: ${fmt(leg.sodium_mg, 0)} mg sodium / ${fmt(leg.kcal, 0)} kcal`;
+  return `Markdown day log: ${fmt(leg.kcal, 0)} kcal, ${fmt(leg.sodium_mg, 0)} mg Na`;
 }
 
 function legacyDayTotalsTitle() {
@@ -188,6 +197,11 @@ function legacyTotalsHoverWrap(innerHtml, d) {
     ${innerHtml}
     <span class="day-legacy-hover-tip" role="tooltip">${esc(tip)}</span>
   </span>`;
+}
+
+function legacyTotalValMarkup(n, mismatch) {
+  const cls = mismatch ? " legacy-total-val--mismatch" : "";
+  return `<span class="legacy-total-val${cls}">${fmt(n, 0)}</span>`;
 }
 
 function renderDayKcalBar(kcal) {
@@ -234,14 +248,15 @@ function daySummaryPanel() {
         <span class="stat-value mono">${fmt(weight.kg, 1)} <span class="stat-unit">kg</span></span>
       </div>`
     : "";
+  const legMm = legacyTotalMismatch(state.day, totals);
   const headEnergySodium = `<div class="day-panel-head-stats" aria-label="Day totals">
       <div class="day-stat">
         <span class="stat-label">Energy</span>
-        ${legacyTotalsHoverWrap(`<span class="stat-value mono">${fmt(totals.kcal, 0)} <span class="stat-unit">kcal</span></span>`, state.day)}
+        ${legacyTotalsHoverWrap(`<span class="stat-value mono">${legacyTotalValMarkup(totals.kcal, legMm.kcal)} <span class="stat-unit">kcal</span></span>`, state.day)}
       </div>
       <div class="day-stat">
         <span class="stat-label">Sodium</span>
-        ${legacyTotalsHoverWrap(`<span class="stat-value mono">${fmt(totals.sodium_mg, 0)} <span class="stat-unit">mg</span></span>`, state.day)}
+        ${legacyTotalsHoverWrap(`<span class="stat-value mono">${legacyTotalValMarkup(totals.sodium_mg, legMm.sodium)} <span class="stat-unit">mg</span></span>`, state.day)}
       </div>
     </div>`;
   const bodyStats = (weightRow || statusRow)
@@ -810,8 +825,9 @@ function daysView() {
     const meta = [d.bp ? `BP ${esc(d.bp)}` : "", d.walking ? esc(d.walking) : ""].filter(Boolean).join(", ");
     const st = dayStatusForList(d);
     const kbar = renderDayKcalBar(d.totals?.kcal);
+    const legMm = legacyTotalMismatch(d, d.totals);
     const totalsLine = legacyTotalsHoverWrap(
-      `<span class="mono day-card-head-totals">${fmt(d.totals?.kcal, 0)} kcal, ${fmt(d.totals?.sodium_mg, 0)} mg Na</span>`,
+      `<span class="mono day-card-head-totals">${legacyTotalValMarkup(d.totals?.kcal, legMm.kcal)} kcal, ${legacyTotalValMarkup(d.totals?.sodium_mg, legMm.sodium)} mg Na</span>`,
       d,
     );
     return `<article class="day-card clickable${kbar.hostClass}" data-open-day="${esc(d.date)}" role="button" tabindex="0">
@@ -1357,6 +1373,14 @@ function settingsView() {
         <label class="field"><span>Gain from (kcal)</span><input id="set-gain-min" type="number" min="1" step="50" value="${esc(String(b.gain_min_kcal))}"></label>
       </div>
       <p class="muted" style="font-size:0.82rem;margin:0.55rem 0 0">Seeded from your Energy baseline notes: 1,500-1,700 kcal target; 2,200 kcal gain line.</p>
+    </section>
+    <section class="card" style="margin-top:0.85rem">
+      <h2>Meal total margin</h2>
+      <p class="muted form-modal-hint" style="margin-top:0">Adds this percent to each meal slot total (lunch, dinner, snack) after catalog math, same as your markdown <span class="mono">+10% margin</span> lines. Day total is the sum of those meal totals. Item lines stay unpadded.</p>
+      <label class="field" style="max-width:12rem;margin-top:0.65rem">
+        <span>Margin (%)</span>
+        <input id="set-meal-margin" type="number" min="0" max="100" step="0.5" value="${esc(String(b.meal_margin_percent))}">
+      </label>
       <div class="row" style="margin-top:0.85rem;flex-wrap:wrap;gap:0.45rem">
         <button type="button" class="btn primary" id="settings-save">Save</button>
         <button type="button" class="btn" id="settings-reset">Reset defaults</button>
@@ -1381,11 +1405,18 @@ async function saveKcalBudgetFromForm() {
     soft_low_kcal: Number(document.getElementById("set-soft-low")?.value),
     soft_high_kcal: Number(document.getElementById("set-soft-high")?.value),
     gain_min_kcal: Number(document.getElementById("set-gain-min")?.value),
+    meal_margin_percent: Number(document.getElementById("set-meal-margin")?.value),
   };
   const data = await api("/settings", { method: "PUT", body: JSON.stringify(body) });
   state.kcalBudget = mergedKcalBudget(data.settings);
   if (state.overview) state.overview.settings = data.settings;
   toast("Settings saved");
+  if (state.tab === "days") await loadDays();
+  if (state.tab === "today" && state.date) {
+    const dayData = await api(`/days/${encodeURIComponent(state.date)}`);
+    state.day = dayData.day || state.day;
+    fillDraftFromDay(state.day);
+  }
   render();
 }
 

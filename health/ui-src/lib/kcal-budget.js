@@ -3,14 +3,19 @@ export const DEFAULT_KCAL_BUDGET = {
   soft_low_kcal: 1500,
   soft_high_kcal: 1700,
   gain_min_kcal: 2200,
+  meal_margin_percent: 10,
 };
 
 export function mergedKcalBudget(raw) {
   if (!raw) return { ...DEFAULT_KCAL_BUDGET };
+  const margin = Number(raw.meal_margin_percent);
   return {
     soft_low_kcal: Number(raw.soft_low_kcal) || DEFAULT_KCAL_BUDGET.soft_low_kcal,
     soft_high_kcal: Number(raw.soft_high_kcal) || DEFAULT_KCAL_BUDGET.soft_high_kcal,
     gain_min_kcal: Number(raw.gain_min_kcal) || DEFAULT_KCAL_BUDGET.gain_min_kcal,
+    meal_margin_percent: Number.isFinite(margin) && margin >= 0
+      ? margin
+      : DEFAULT_KCAL_BUDGET.meal_margin_percent,
   };
 }
 
