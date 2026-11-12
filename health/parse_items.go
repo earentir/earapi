@@ -80,6 +80,7 @@ func ParseMealStructureFromRaw(raw string) []MealItem {
 		}
 	}
 	flushGroup()
+	normalizeMealItems(out)
 	return out
 }
 
@@ -344,10 +345,7 @@ func parseOneMealChunk(ch string) (MealItem, bool) {
 			}
 		}
 	}
-	count := 0.0
-	if m := itemTimesRe.FindStringSubmatch(ch); len(m) > 1 {
-		count = parseFloatLoose(m[1])
-	}
+	count := countFromMealChunk(ch)
 	if grams == 0 && count > 0 {
 		if g := gramsFromMealChunk(ch); g > 0 {
 			grams = g
@@ -362,7 +360,9 @@ func parseOneMealChunk(ch string) (MealItem, bool) {
 	if name == "" {
 		return MealItem{}, false
 	}
-	return MealItem{Name: name, Grams: grams, Count: count, Note: ch}, true
+	item := MealItem{Name: name, Grams: grams, Count: count, Note: ch}
+	normalizeMealItemCountGrams(&item)
+	return item, true
 }
 
 func edibleGramsBeforeCount(ch string) bool {
