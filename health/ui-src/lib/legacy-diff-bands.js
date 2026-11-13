@@ -29,7 +29,7 @@ export function mergedLegacyDiffBands(settings) {
 /** @returns {string} meal-band--* class */
 export function legacyDiffBandClass(delta, settings) {
   const d = Math.abs(Number(delta) || 0);
-  if (d <= 0) return "meal-band--muted";
+  if (d <= 0) return "meal-band--green";
   const b = mergedLegacyDiffBands(settings);
   if (d < b.legacy_diff_green_lt) return "meal-band--green";
   if (d < b.legacy_diff_yellow_lt) return "meal-band--yellow";

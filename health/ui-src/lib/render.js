@@ -1,8 +1,16 @@
 import { AUTH_KEY, EMPTY_CELL, SLOTS } from "./constants.js";
 import { NAV_TABS, applyRouteToState, pathForTab, pushAppRoute, resolveTodayDate } from "./route.js";
 import { dayCardStatus, dayCardListDotMarkup, dayStatusDotMarkup } from "./day-status.js";
-import { catalogLegacyDeltaBand } from "./legacy-diff-bands.js";
-import { applyMealMarginTotals, mealMarginPercent } from "./meal-margin.js";
+import {
+  nutritionDay,
+  dayDisplay,
+  mealBandClass,
+  computedMealItem,
+  dayTotalsView,
+  itemGapFor,
+  scheduleDayNutritionCompute,
+  refreshDayNutrition,
+} from "./nutrition-client.js";
 import { themeSelectHtml, saveTheme } from "./theme.js";
 import { state, emptyItem, emptySlot, emptyDraft, emptyStockSet, emptyStockForm } from "./state.js";
 import {
@@ -23,8 +31,7 @@ import {
 } from "./meal-items.js";
 import { bestFoodMatch, foodByAlias, foodMatchCandidates, catalogFoodSuggestions, foodPickCandidates } from "./fuzzy.js";
 import { matchStockLotByName } from "./stock-match.js";
-import { effectiveItemGrams } from "./item-grams.js";
-import { DEFAULT_KCAL_BUDGET, mergedKcalBudget, kcalBudgetBand, dayKcalBarParts } from "./kcal-budget.js";
+import { DEFAULT_KCAL_BUDGET, mergedKcalBudget, dayKcalBarParts } from "./kcal-budget.js";
 
 function defaultSetName(slot) {
   const s = (slot || "").trim().toLowerCase();
@@ -122,108 +129,76 @@ function content() {
   return wrap;
 }
 
-function sumItemMacrosFromDraft(items) {
-  let kcal = 0;
-  let sodium_mg = 0;
-  let any = false;
-  const walk = (rows) => {
-    (rows || []).forEach((it) => {
-      if (itemHasParts(it)) {
-        walk(it.parts);
-        return;
-      }
-      const g = effectiveItemGrams(it);
-      if (g <= 0) return;
-      const { kcal: k, na } = itemNutrientPreview(it);
-      if (k != null) {
-        kcal += k;
-        any = true;
-      }
-      if (na != null) {
-        sodium_mg += na;
-        any = true;
-      }
-    });
-  };
-  walk(items);
-  return any ? { kcal, sodium_mg } : null;
-}
-
 function slotMealTotals(slot) {
-  const items = state.mealDraft?.[slot]?.items;
-  const margin = mealMarginPercent(state.kcalBudget);
-  if (items?.length) {
-    const base = sumItemMacrosFromDraft(items);
-    if (!base) return null;
-    return applyMealMarginTotals(base, margin);
-  }
-  const m = state.day?.meals?.[slot];
-  if (!m || (!m.items?.length && !m.raw)) return null;
-  if (m.kcal || m.sodium_mg) {
-    return { kcal: Number(m.kcal) || 0, sodium_mg: Number(m.sodium_mg) || 0 };
-  }
-  return null;
+  const m = nutritionDay()?.meals?.[slot];
+  if (!m) return null;
+  const kcal = Number(m.kcal) || 0;
+  const sodium_mg = Number(m.sodium_mg) || 0;
+  if (kcal <= 0 && sodium_mg <= 0) return null;
+  return { kcal, sodium_mg };
 }
 
 function computedDayTotalsFromDraft() {
-  let kcal = 0;
-  let sodium_mg = 0;
-  let any = false;
-  for (const slot of SLOTS) {
-    const t = slotMealTotals(slot);
-    if (!t) continue;
-    kcal += t.kcal || 0;
-    sodium_mg += t.sodium_mg || 0;
-    any = true;
-  }
-  return any ? { kcal, sodium_mg } : (state.day?.totals || { kcal: 0, sodium_mg: 0 });
+  return dayTotalsView();
 }
 
-function legacyTotalsTitleForDay(d) {
+function legacyDotTooltip(d, field) {
   const leg = d?.legacy_totals;
-  if (!leg || (Number(leg.kcal) <= 0 && Number(leg.sodium_mg) <= 0)) return "";
-  return `Markdown day log: ${fmt(leg.kcal, 0)} kcal, ${fmt(leg.sodium_mg, 0)} mg Na`;
+  if (!leg) return "";
+  if (field === "sodium") {
+    const v = Number(leg.sodium_mg) || 0;
+    return v > 0 ? `Legacy: ${fmt(v, 0)}mg` : "";
+  }
+  const v = Number(leg.kcal) || 0;
+  return v > 0 ? `Legacy: ${fmt(v, 0)}kcal` : "";
 }
 
-function legacyDayTotalsTitle() {
-  return legacyTotalsTitleForDay(state.day);
-}
-
-/** Visible hover tooltip (native title is unreliable on role=button day cards). */
-function legacyTotalsHoverWrap(innerHtml, d) {
-  const tip = legacyTotalsTitleForDay(d);
-  if (!tip) return innerHtml;
-  return `<span class="day-legacy-hover day-stat--legacy-hover" tabindex="0" aria-label="${esc(tip)}">
-    ${innerHtml}
+/** Dot after kcal or mg — color and hover for that nutrient only. */
+function legacyDiffDot(d, field) {
+  const leg = d?.legacy_totals;
+  const disp = dayDisplay(d);
+  const isNa = field === "sodium";
+  const legVal = isNa ? Number(leg?.sodium_mg) : Number(leg?.kcal);
+  if (!leg || legVal <= 0) return "";
+  const tip = legacyDotTooltip(d, field);
+  if (!tip) return "";
+  const band = (isNa ? disp.sodium_diff_band : disp.kcal_diff_band) || "muted";
+  if (band === "muted") return "";
+  const bandClass = ` day-legacy-diff-dot--${band}`;
+  return `<span class="day-legacy-hover day-legacy-diff-dot-wrap" tabindex="0" aria-label="${esc(tip)}">
+    <span class="day-legacy-diff-dot${bandClass}" aria-hidden="true"></span>
     <span class="day-legacy-hover-tip" role="tooltip">${esc(tip)}</span>
   </span>`;
 }
 
 function dayHeaderTotalMarkup(d, totals) {
-  const leg = d?.legacy_totals;
+  const disp = dayDisplay(d);
   const kcal = Number(totals?.kcal) || 0;
   const sod = Number(totals?.sodium_mg) || 0;
-  const bands = state.kcalBudget;
-  const kBand = catalogLegacyDeltaBand(kcal, leg?.kcal, bands);
-  const naBand = catalogLegacyDeltaBand(sod, leg?.sodium_mg, bands);
-  return `<span class="mono day-card-head-totals"><span class="meal-band-kcal ${kBand}">${fmt(kcal, 0)} kcal</span>, <span class="meal-band-na ${naBand}">${fmt(sod, 0)} mg Na</span></span>`;
+  const intakeBand = mealBandClass(disp.intake_bar_band);
+  const naIntakeBand = mealBandClass(disp.sodium_intake_band);
+  const kDot = legacyDiffDot(d, "kcal");
+  const naDot = legacyDiffDot(d, "sodium");
+  return `<span class="mono day-card-head-totals"><span class="day-card-head-energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span><span class="day-card-head-energy-unit"> kcal</span>${kDot}</span>, <span class="day-card-head-energy"><span class="meal-band-na ${naIntakeBand}">${fmt(sod, 0)}</span><span class="day-card-head-energy-unit"> mg Na</span>${naDot}</span></span>`;
 }
 
 function dayPanelEnergyMarkup(totals, d) {
-  const leg = d?.legacy_totals;
+  const disp = dayDisplay(d);
   const kcal = Number(totals?.kcal) || 0;
   const sod = Number(totals?.sodium_mg) || 0;
-  const bands = state.kcalBudget;
-  const kBand = catalogLegacyDeltaBand(kcal, leg?.kcal, bands);
-  const naBand = catalogLegacyDeltaBand(sod, leg?.sodium_mg, bands);
+  const intakeBand = mealBandClass(disp.intake_bar_band);
+  const naIntakeBand = mealBandClass(disp.sodium_intake_band);
+  const kDot = legacyDiffDot(d, "kcal");
+  const naDot = legacyDiffDot(d, "sodium");
   return {
-    kcal: `<span class="stat-value mono"><span class="meal-band-kcal ${kBand}">${fmt(kcal, 0)}</span> <span class="stat-unit">kcal</span></span>`,
-    sodium: `<span class="stat-value mono"><span class="meal-band-na ${naBand}">${fmt(sod, 0)}</span> <span class="stat-unit">mg</span></span>`,
+    kcal: `<span class="stat-value mono stat-value--energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span> <span class="stat-unit">kcal</span>${kDot}</span>`,
+    sodium: `<span class="stat-value mono stat-value--energy"><span class="meal-band-na ${naIntakeBand}">${fmt(sod, 0)}</span> <span class="stat-unit">mg</span>${naDot}</span>`,
   };
 }
 
-function renderDayKcalBar(kcal) {
-  const parts = dayKcalBarParts(kcalBudgetBand(kcal, state.kcalBudget));
+function renderDayKcalBar(_kcal, d) {
+  const band = dayDisplay(d).intake_bar_band || "none";
+  const parts = dayKcalBarParts(band);
   const tip = parts.title ? ` title="${esc(parts.title)}"` : "";
   const bar = parts.barClass
     ? `<span class="day-kcal-bar day-kcal-bar--${parts.barClass}"${tip} aria-hidden="true"></span>`
@@ -239,16 +214,17 @@ function daySummaryPanel() {
   const slotRows = SLOTS.map((slot) => {
     const label = slot.charAt(0).toUpperCase() + slot.slice(1);
     const t = slotMealTotals(slot);
-    const kcalHtml = t
-      ? `<span class="day-slot-kcal mono">${fmt(t.kcal, 0)} <span class="stat-unit">kcal</span></span>`
-      : `<span class="day-slot-kcal mono muted">${EMPTY_CELL}</span>`;
-    const naHtml = t
-      ? `<span class="day-slot-na mono">${fmt(t.sodium_mg, 0)} <span class="stat-unit">mg</span></span>`
-      : `<span class="day-slot-na mono muted">${EMPTY_CELL}</span>`;
+    const metricsHtml = t
+      ? `<div class="day-slot-metrics">
+          <span class="day-slot-num day-slot-kcal mono">${fmt(t.kcal, 0)}</span>
+          <span class="day-slot-unit stat-unit">kcal</span>
+          <span class="day-slot-num day-slot-na mono">${fmt(t.sodium_mg, 0)}</span>
+          <span class="day-slot-unit stat-unit">mg</span>
+        </div>`
+      : `<span class="day-slot-metrics-empty mono muted">${EMPTY_CELL}</span>`;
     return `<div class="day-slot-stat">
       <span class="day-slot-name">${esc(label)}</span>
-      ${kcalHtml}
-      ${naHtml}
+      ${metricsHtml}
     </div>`;
   }).join("");
   const status = [];
@@ -266,25 +242,27 @@ function daySummaryPanel() {
         <span class="stat-value mono">${fmt(weight.kg, 1)} <span class="stat-unit">kg</span></span>
       </div>`
     : "";
-  const panelTotals = dayPanelEnergyMarkup(totals, state.day);
+  const panelTotals = dayPanelEnergyMarkup(totals, nutritionDay());
   const headEnergySodium = `<div class="day-panel-head-stats" aria-label="Day totals">
       <div class="day-stat">
         <span class="stat-label">Energy</span>
-        ${legacyTotalsHoverWrap(panelTotals.kcal, state.day)}
+        ${panelTotals.kcal}
       </div>
       <div class="day-stat">
         <span class="stat-label">Sodium</span>
-        ${legacyTotalsHoverWrap(panelTotals.sodium, state.day)}
+        ${panelTotals.sodium}
       </div>
     </div>`;
-  const bodyStats = (weightRow || statusRow)
-    ? `<div class="day-stats">${weightRow}${statusRow}</div>`
-    : "";
-  const kbar = renderDayKcalBar(totals.kcal);
+  const bodyStats = statusRow ? `<div class="day-stats">${statusRow}</div>` : "";
+  const weightUnderTitle = weightRow ? `<div class="day-panel-weight">${weightRow}</div>` : "";
+  const kbar = renderDayKcalBar(totals.kcal, nutritionDay());
   return `<section class="card day-panel${kbar.hostClass}">
     ${kbar.bar}
     <div class="slot-head day-panel-head">
-      <h2 class="day-panel-title" style="margin:0">${dayStatusDotMarkup(daySt)}<span class="day-panel-title-text"><span class="mono">${esc(state.date)}</span> ${esc(weekdayNameForISODate(state.date))}</span></h2>
+      <div class="day-panel-head-left">
+        <h2 class="day-panel-title" style="margin:0">${dayStatusDotMarkup(daySt)}<span class="day-panel-title-text"><span class="mono">${esc(state.date)}</span> ${esc(weekdayNameForISODate(state.date))}</span></h2>
+        ${weightUnderTitle}
+      </div>
       ${headEnergySodium}
     </div>
     ${bodyStats}
@@ -461,26 +439,6 @@ function linkDraftItemStock(it) {
   if (lot) it.stock_lot_id = lot.id;
 }
 
-function itemNutrientPreview(it) {
-  const g = effectiveItemGrams(it);
-  if (g <= 0) return { kcal: null, na: null, fromStock: false };
-  const lot = stockLotForItem(it);
-  if (lot) {
-    const k100 = lot.kcal_per_100g;
-    const n100 = lot.sodium_mg_per_100g;
-    const kcal = k100 != null ? (k100 * g) / 100 : null;
-    const na = n100 != null ? (n100 * g) / 100 : null;
-    if (k100 != null || n100 != null) {
-      return { kcal, na, fromStock: true };
-    }
-  }
-  const f = foodForItem(it);
-  if (!f) return { kcal: null, na: null, fromStock: false };
-  const kcal = f.kcal_per_100g != null ? (f.kcal_per_100g * g) / 100 : null;
-  const na = f.sodium_mg_per_100g != null ? (f.sodium_mg_per_100g * g) / 100 : null;
-  return { kcal, na, fromStock: false };
-}
-
 function slotHeaderTotals(slot) {
   const t = slotMealTotals(slot);
   if (t && (t.kcal || t.sodium_mg)) {
@@ -523,14 +481,16 @@ function suggestList(slot, i, partIdx, q) {
   ).join("")}</div>`;
 }
 
-function itemKcalCell(it) {
-  const { kcal } = itemNutrientPreview(it);
-  return kcal != null ? fmt(kcal, 0) : "-";
+function itemKcalCell(slot, idx, partIdx) {
+  const it = computedMealItem(slot, idx, partIdx);
+  const k = Number(it?.kcal);
+  return Number.isFinite(k) && k > 0 ? fmt(k, 0) : EMPTY_CELL;
 }
 
-function itemNaCell(it) {
-  const { na } = itemNutrientPreview(it);
-  return na != null ? fmt(na, 0) : "-";
+function itemNaCell(slot, idx, partIdx) {
+  const it = computedMealItem(slot, idx, partIdx);
+  const n = Number(it?.sodium_mg);
+  return Number.isFinite(n) && n > 0 ? fmt(n, 0) : EMPTY_CELL;
 }
 
 function foodHasPer100Nutrition(f) {
@@ -555,61 +515,22 @@ function needsPer100gRow(it) {
   return true;
 }
 
-/** Why a line is highlighted (not in catalog, or missing kcal/Na from catalog/stock). */
-function itemNutritionIssue(it) {
-  if (!(it?.name || "").trim() || itemHasParts(it)) return null;
-  const g = effectiveItemGrams(it);
-  if (g <= 0) return null;
-  if (needsPer100gRow(it)) {
-    return { msg: "Not in Foods or Stock: pick a food, link stock, or enter kcal/100g and Na/100g" };
-  }
-  const f = foodForItem(it);
-  const lot = stockLotForItem(it);
-  if (f && foodHasPer100Nutrition(f)) return null;
-  if (lot && lot.kcal_per_100g != null && lot.sodium_mg_per_100g != null) return null;
-  const { kcal, na } = itemNutrientPreview(it);
-  if (kcal != null && na != null) return null;
-  if (lot) {
-    return { msg: "Stock batch missing kcal/100g and/or Na/100g: complete the batch or pick a catalog food" };
-  }
-  if (f && (f.kcal_per_100g != null || f.sodium_mg_per_100g != null)) {
-    return { msg: "Food catalog missing kcal/100g and/or Na/100g: edit under Foods" };
-  }
-  if (foodItemLinked(it)) {
-    return { msg: "Food catalog missing kcal/100g and/or Na/100g: edit under Foods" };
-  }
-  return { msg: "Cannot compute kcal and/or sodium for this line" };
-}
-
-function walkDraftItems(items, slot, fn, prefix = "") {
-  (items || []).forEach((it, i) => {
-    const ref = prefix === "" ? String(i) : `${prefix}/${i}`;
-    if (itemHasParts(it)) {
-      walkDraftItems(it.parts, slot, fn, ref);
-      return;
-    }
-    fn(it, slot, ref);
-  });
+/** Highlight from server gap list (POST /nutrition/compute/day). */
+function itemNutritionIssue(slot, idx, partIdx) {
+  const gap = itemGapFor(slot, idx, partIdx);
+  if (!gap) return null;
+  const msg = (gap.note || "").trim() || "Missing catalog data to compute this line";
+  return { msg };
 }
 
 function draftNutritionGaps() {
-  const gaps = [];
-  const md = state.mealDraft;
-  if (!md) return gaps;
-  for (const slot of SLOTS) {
-    walkDraftItems(md[slot]?.items, slot, (it, s) => {
-      const issue = itemNutritionIssue(it);
-      if (!issue) return;
-      gaps.push({
-        date: state.date,
-        slot: s,
-        name: (it.name || "").trim(),
-        grams: Number(it.grams) || 0,
-        note: issue.msg,
-      });
-    });
-  }
-  return gaps;
+  return (dayDisplay().item_gaps || []).map((g) => ({
+    date: g.date || state.date,
+    slot: g.slot,
+    name: g.name,
+    grams: g.grams,
+    note: g.note,
+  }));
 }
 
 function draftDayForStatus() {
@@ -670,17 +591,19 @@ function mealItemsGridHead() {
 function nameGramsRow(slot, i, it, partIdx) {
   const isPart = partIdx != null;
   const needPer100g = needsPer100gRow(it);
-  const nutritionIssue = itemNutritionIssue(it);
+  const nutritionIssue = itemNutritionIssue(slot, i, partIdx);
   const partAttr = isPart ? ` data-part="${partIdx}"` : "";
   const isSetHeader = !isPart && itemHasParts(it);
-  const setStats = isSetHeader ? setPartStats(it) : null;
+  const computedSet = isSetHeader ? computedMealItem(slot, i, null) : null;
+  const setPartCount = (it.parts || []).filter((p) => (p.name || "").trim() || Number(p.grams) > 0).length;
   const gramsPh = isPart ? "g" : "g";
   const namePh = isPart ? "Ingredient" : (isSetHeader ? (slot === "stock" ? "Batch name" : "Set name") : "Food");
   const countCell = isSetHeader
     ? `<span class="cell-num muted">${EMPTY_CELL}</span>`
     : `<input class="cell-count" data-field="count" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.count)}" placeholder="×" inputmode="decimal" title="How many units (e.g. 4 wafers)">`;
+  const setGrams = Number(computedSet?.grams) || Number(it.grams) || 0;
   const gramsCell = isSetHeader
-    ? `<span class="cell-num mono cell-sum" title="${setStats.count} ingredients, ${fmt(setStats.grams, 0)} g total">${fmt(setStats.grams, 0)} <span class="muted">g, ${setStats.count} items</span></span>`
+    ? `<span class="cell-num mono cell-sum" title="${setPartCount} ingredients, ${fmt(setGrams, 0)} g total">${fmt(setGrams, 0)} <span class="muted">g, ${setPartCount} items</span></span>`
     : `<input class="cell-grams" data-field="grams" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.grams)}" placeholder="${gramsPh}" inputmode="decimal" title="grams total (or leave blank with × count)">`;
   let lead;
   if (isPart) {
@@ -714,15 +637,8 @@ function nameGramsRow(slot, i, it, partIdx) {
   const kcalCell = needPer100g
     ? `<input class="cell-grams cell-per100g" data-field="kcal_per_100g" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.kcal_per_100g)}" placeholder="kcal/100g" inputmode="decimal" title="kcal per 100 g (not in catalog)">`
     : "";
-  let kcalDisplay = itemKcalCell(it);
-  let naDisplay = itemNaCell(it);
-  if (isSetHeader) {
-    const sums = sumItemMacrosFromDraft(it.parts);
-    if (sums) {
-      kcalDisplay = fmt(sums.kcal, 0);
-      naDisplay = fmt(sums.sodium_mg, 0);
-    }
-  }
+  const kcalDisplay = itemKcalCell(slot, i, partIdx);
+  const naDisplay = itemNaCell(slot, i, partIdx);
   const kcalCellOut = needPer100g
     ? kcalCell
     : `<span class="cell-num mono">${kcalDisplay}</span>`;
@@ -842,8 +758,8 @@ function daysView() {
     const meals = ["lunch", "dinner", "snack"].map((s) => mealLine(s, d)).join("");
     const meta = [d.bp ? `BP ${esc(d.bp)}` : "", d.walking ? esc(d.walking) : ""].filter(Boolean).join(", ");
     const st = dayStatusForList(d);
-    const kbar = renderDayKcalBar(d.totals?.kcal);
-    const totalsLine = legacyTotalsHoverWrap(dayHeaderTotalMarkup(d, d.totals), d);
+    const kbar = renderDayKcalBar(d.totals?.kcal, d);
+    const totalsLine = dayHeaderTotalMarkup(d, d.totals);
     return `<article class="day-card clickable${kbar.hostClass}" data-open-day="${esc(d.date)}" role="button" tabindex="0">
       ${kbar.bar}
       <div class="day-card-head">
@@ -1389,8 +1305,24 @@ function settingsView() {
       <p class="muted" style="font-size:0.82rem;margin:0.55rem 0 0">Seeded from your Energy baseline notes: 1,500-1,700 kcal target; 2,200 kcal gain line.</p>
     </section>
     <section class="card" style="margin-top:0.85rem">
-      <h2>Markdown diff bands (day header)</h2>
-      <p class="muted form-modal-hint" style="margin-top:0">Colors the day total kcal and mg Na on Days and Today by <span class="mono">|catalog − markdown day log|</span>. Same scale for energy and sodium.</p>
+      <h2>Daily sodium bands</h2>
+      <p class="muted form-modal-hint" style="margin-top:0">Colors the day total mg Na (same traffic-light pattern as kcal).</p>
+      <ul class="kcal-band-legend muted">
+        <li><span class="kcal-band-swatch kcal-band-swatch--green" aria-hidden="true"></span> Green: below soft low</li>
+        <li><span class="kcal-band-swatch kcal-band-swatch--yellow" aria-hidden="true"></span> Yellow: soft low – soft high (target band)</li>
+        <li><span class="kcal-band-swatch kcal-band-swatch--orange" aria-hidden="true"></span> Orange: above soft high, below ceiling</li>
+        <li><span class="kcal-band-swatch kcal-band-swatch--red" aria-hidden="true"></span> Red: at/above ceiling</li>
+      </ul>
+      <div class="row settings-kcal-fields" style="flex-wrap:wrap;gap:0.65rem;margin-top:0.85rem">
+        <label class="field"><span>Soft low (mg)</span><input id="set-sodium-low" type="number" min="1" step="50" value="${esc(String(b.soft_low_sodium_mg))}"></label>
+        <label class="field"><span>Soft high (mg)</span><input id="set-sodium-high" type="number" min="1" step="50" value="${esc(String(b.soft_high_sodium_mg))}"></label>
+        <label class="field"><span>Ceiling (mg)</span><input id="set-sodium-ceiling" type="number" min="1" step="50" value="${esc(String(b.ceiling_sodium_mg))}"></label>
+      </div>
+      <p class="muted" style="font-size:0.82rem;margin:0.55rem 0 0">Defaults: 1,200 / 2,000 / 2,400 mg (historical ~2 g day ceiling).</p>
+    </section>
+    <section class="card" style="margin-top:0.85rem">
+      <h2>Markdown diff bands (dots after kcal / mg)</h2>
+      <p class="muted form-modal-hint" style="margin-top:0">Small dots show <span class="mono">|catalog − markdown day log|</span> per nutrient. Same scale for kcal and sodium.</p>
       <ul class="kcal-band-legend muted">
         <li><span class="kcal-band-swatch kcal-band-swatch--green" aria-hidden="true"></span> Green: diff &lt; green limit</li>
         <li><span class="kcal-band-swatch kcal-band-swatch--yellow" aria-hidden="true"></span> Yellow: diff &lt; yellow limit</li>
@@ -1435,6 +1367,9 @@ async function saveKcalBudgetFromForm() {
     soft_low_kcal: Number(document.getElementById("set-soft-low")?.value),
     soft_high_kcal: Number(document.getElementById("set-soft-high")?.value),
     gain_min_kcal: Number(document.getElementById("set-gain-min")?.value),
+    soft_low_sodium_mg: Number(document.getElementById("set-sodium-low")?.value),
+    soft_high_sodium_mg: Number(document.getElementById("set-sodium-high")?.value),
+    ceiling_sodium_mg: Number(document.getElementById("set-sodium-ceiling")?.value),
     meal_margin_percent: Number(document.getElementById("set-meal-margin")?.value),
     legacy_diff_green_lt: Number(document.getElementById("set-diff-green")?.value),
     legacy_diff_yellow_lt: Number(document.getElementById("set-diff-yellow")?.value),
@@ -1789,16 +1724,8 @@ function serializeItem(it) {
   const row = { name: name || "Dish" };
   const cnt = numOrUndef(it.count);
   if (cnt != null && cnt > 0) row.count = cnt;
-  if (it.is_set) {
-    row.grams = setPartStats(it).grams;
-  } else {
-    const gExplicit = numOrUndef(it.grams);
-    if (gExplicit != null && gExplicit > 0) row.grams = gExplicit;
-    else {
-      const eg = effectiveItemGrams(it);
-      row.grams = eg > 0 ? eg : 0;
-    }
-  }
+  const gExplicit = numOrUndef(it.grams);
+  row.grams = gExplicit != null && gExplicit > 0 ? gExplicit : 0;
   if (food) row.food_id = food.id || it.food_id;
   else if (it.food_id) row.food_id = it.food_id;
   const lot = stockLotForItem(it);
@@ -1826,6 +1753,7 @@ let saveDayQueued = false;
 
 function scheduleSaveDay() {
   if (state.tab !== "today" || !state.user || !state.token) return;
+  scheduleDayNutritionCompute(draftItems, state.mealDraft, () => render());
   clearTimeout(saveDayTimer);
   saveDayTimer = setTimeout(() => saveDay({ silent: true }), 650);
 }
@@ -1866,6 +1794,7 @@ async function saveDay(opts = {}) {
     };
     const out = await api("/log", { method: "POST", body: JSON.stringify(body) });
     state.day = out.day || null;
+    state.computedDay = state.day;
     if (!silent) fillDraftFromDay(state.day);
     if (out.foods_ensured?.length || out.foods_created?.length) await loadFoods();
     if (out.reply) {
@@ -2115,11 +2044,17 @@ async function loadDay() {
   try {
     const data = await api(`/days/${state.date}`);
     state.day = data.day;
+    state.computedDay = state.day;
   } catch (e) {
-    if (e.status === 404) state.day = null;
-    else throw e;
+    if (e.status === 404) {
+      state.day = null;
+      state.computedDay = null;
+    } else throw e;
   }
   fillDraftFromDay(state.day);
+  if (state.day) {
+    await refreshDayNutrition(draftItems, state.mealDraft);
+  }
 }
 
 function stockFormRoot() {

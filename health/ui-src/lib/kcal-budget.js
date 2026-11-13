@@ -3,6 +3,9 @@ export const DEFAULT_KCAL_BUDGET = {
   soft_low_kcal: 1500,
   soft_high_kcal: 1700,
   gain_min_kcal: 2200,
+  soft_low_sodium_mg: 1200,
+  soft_high_sodium_mg: 2000,
+  ceiling_sodium_mg: 2400,
   meal_margin_percent: 10,
   legacy_diff_green_lt: 100,
   legacy_diff_yellow_lt: 200,
@@ -19,6 +22,9 @@ export function mergedKcalBudget(raw) {
     soft_low_kcal: Number(raw.soft_low_kcal) || DEFAULT_KCAL_BUDGET.soft_low_kcal,
     soft_high_kcal: Number(raw.soft_high_kcal) || DEFAULT_KCAL_BUDGET.soft_high_kcal,
     gain_min_kcal: Number(raw.gain_min_kcal) || DEFAULT_KCAL_BUDGET.gain_min_kcal,
+    soft_low_sodium_mg: Number(raw.soft_low_sodium_mg) || DEFAULT_KCAL_BUDGET.soft_low_sodium_mg,
+    soft_high_sodium_mg: Number(raw.soft_high_sodium_mg) || DEFAULT_KCAL_BUDGET.soft_high_sodium_mg,
+    ceiling_sodium_mg: Number(raw.ceiling_sodium_mg) || DEFAULT_KCAL_BUDGET.ceiling_sodium_mg,
     meal_margin_percent: Number.isFinite(margin) && margin >= 0
       ? margin
       : DEFAULT_KCAL_BUDGET.meal_margin_percent,
@@ -33,6 +39,14 @@ export function mergedKcalBudget(raw) {
     merged.legacy_diff_green_lt = DEFAULT_KCAL_BUDGET.legacy_diff_green_lt;
     merged.legacy_diff_yellow_lt = DEFAULT_KCAL_BUDGET.legacy_diff_yellow_lt;
     merged.legacy_diff_orange_lt = DEFAULT_KCAL_BUDGET.legacy_diff_orange_lt;
+  }
+  if (
+    !(merged.soft_low_sodium_mg < merged.soft_high_sodium_mg &&
+      merged.soft_high_sodium_mg < merged.ceiling_sodium_mg)
+  ) {
+    merged.soft_low_sodium_mg = DEFAULT_KCAL_BUDGET.soft_low_sodium_mg;
+    merged.soft_high_sodium_mg = DEFAULT_KCAL_BUDGET.soft_high_sodium_mg;
+    merged.ceiling_sodium_mg = DEFAULT_KCAL_BUDGET.ceiling_sodium_mg;
   }
   return merged;
 }
@@ -59,13 +73,13 @@ export function kcalBudgetBandLabel(band) {
   return BAND_LABEL[band] || "";
 }
 
-export function dayKcalBarParts(band) {
+export function dayKcalBarParts(band, title = "") {
   if (!band || band === "none") {
     return { hostClass: "", barClass: "", title: "" };
   }
   return {
     hostClass: " day-kcal-bar-host",
     barClass: band,
-    title: kcalBudgetBandLabel(band),
+    title: title || kcalBudgetBandLabel(band),
   };
 }

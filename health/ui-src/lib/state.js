@@ -49,6 +49,8 @@ export const state = {
   foodAliases: [],
   foodPick: null,
   day: null,
+  /** Server-scaled copy for Today UI (POST /nutrition/compute/day). */
+  computedDay: null,
   days: [],
   daysQ: "",
   daysStatusFilter: "all",

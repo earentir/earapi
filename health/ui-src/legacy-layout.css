@@ -226,14 +226,14 @@ td.mono, .date-iso { white-space: nowrap; }
   cursor: pointer;
 }
 .day-card.day-kcal-bar-host {
-  padding-left: calc(0.75rem + 8px);
+  padding-left: calc(0.75rem + 16px);
 }
 .day-kcal-bar-host > .day-kcal-bar {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 16px;
   border-radius: 12px 0 0 12px;
 }
 .day-kcal-bar--green { background: var(--ok, #3ecf8e); }
@@ -241,7 +241,7 @@ td.mono, .date-iso { white-space: nowrap; }
 .day-kcal-bar--orange { background: #e6940a; }
 .day-kcal-bar--red { background: var(--warn, #f87171); }
 
-/* Day header kcal/Na bands: catalog vs markdown gap (<100 green …). */
+/* Day header: kcal/Na numbers = intake bands; dots after labels = markdown diff per nutrient. */
 .day-card:hover { border-color: var(--accent-dim); }
 
 .day-card-dot-wrap {
@@ -760,7 +760,7 @@ button.row-vert-label.pick-tag:hover {
 
 .day-panel { margin-bottom: 1rem; }
 .day-panel.day-kcal-bar-host {
-  padding-left: calc(1rem + 8px);
+  padding-left: calc(1rem + 16px);
 }
 .kcal-band-legend {
   list-style: none;
@@ -786,16 +786,70 @@ button.row-vert-label.pick-tag:hover {
 .kcal-band-swatch--orange { background: #e6940a; }
 .kcal-band-swatch--red { background: var(--warn, #f87171); }
 .day-panel-head {
-  align-items: flex-end;
+  align-items: flex-start;
+}
+.day-panel-head-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.day-panel-weight {
+  margin: 0;
 }
 .day-panel-title {
   font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.25;
 }
+.day-panel-title .day-title-status.day-card-status {
+  position: relative;
+  inset: auto;
+  right: auto;
+  bottom: auto;
+  top: auto;
+  left: auto;
+  align-self: center;
+  margin: 0;
+}
 .day-stat--legacy-hover[title] {
   cursor: help;
 }
+
+.stat-value--energy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-wrap: wrap;
+}
+.day-card-head-energy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+.day-card-head-energy-unit {
+  color: var(--muted);
+  font-weight: 400;
+}
+.day-legacy-diff-dot-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.1rem;
+  vertical-align: middle;
+}
+.day-legacy-diff-dot {
+  display: block;
+  width: 0.36rem;
+  height: 0.36rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in oklab, var(--text) 12%, transparent);
+  box-sizing: border-box;
+}
+.day-legacy-diff-dot--green { background: var(--ok, #3ecf8e); }
+.day-legacy-diff-dot--yellow { background: #d4b429; }
+.day-legacy-diff-dot--orange { background: #e6940a; }
+.day-legacy-diff-dot--red { background: var(--warn, #f87171); }
 
 .day-panel-head-stats {
   display: flex;
@@ -841,35 +895,43 @@ button.row-vert-label.pick-tag:hover {
 .day-slot-stat {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
   column-gap: 0.65rem;
-  row-gap: 0.12rem;
-  align-items: baseline;
+  align-items: start;
 }
 .day-slot-name {
   grid-column: 1;
-  grid-row: 1;
-  align-self: baseline;
   font-size: 1.02rem;
   font-weight: 600;
   line-height: 1.2;
   color: var(--text);
 }
-.day-slot-kcal {
+.day-slot-metrics {
   grid-column: 2;
-  grid-row: 1;
+  display: grid;
+  grid-template-columns: auto max-content;
+  column-gap: 0.3rem;
+  row-gap: 0.12rem;
+  justify-items: end;
+  text-align: right;
+}
+.day-slot-metrics-empty {
+  grid-column: 2;
   justify-self: end;
-  font-size: 0.9rem;
-  line-height: 1.2;
+}
+.day-slot-num {
   white-space: nowrap;
 }
+.day-slot-kcal {
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
 .day-slot-na {
-  grid-column: 2;
-  grid-row: 2;
-  justify-self: end;
   font-size: 0.82rem;
   line-height: 1.2;
   color: var(--muted);
+}
+.day-slot-unit {
+  text-align: left;
   white-space: nowrap;
 }
 .day-panel-actions {
@@ -919,6 +981,9 @@ button.row-vert-label.pick-tag:hover {
   align-items: baseline;
   gap: 0.5rem;
   margin-bottom: 0.55rem;
+}
+.day-panel-head.slot-head {
+  margin-bottom: 0.35rem;
 }
 
 .stock-lot-head {

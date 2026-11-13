@@ -1,4 +1,4 @@
-/** UI placeholder for missing numbers (ASCII hyphen only, no em dash). */
+/** Missing numbers: ASCII hyphen only (no em dash, no middot in any user-facing copy). */
 export const EMPTY_CELL = "-";
 
 export const AUTH_KEY = "earapi-health-auth";

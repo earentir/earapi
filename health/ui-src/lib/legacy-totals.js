@@ -1,4 +1,6 @@
-/** Markdown day-column totals (hover only) vs catalog-computed day totals. */
+/** Markdown day-column totals (hover only) vs catalog-computed day totals.
+ *  Dot tooltips: `Legacy: {kcal}kcal` / `Legacy: {sodium_mg}mg`
+ */
 
 /**
  * @param {{ legacy_totals?: { kcal?: number, sodium_mg?: number } } | null | undefined} d
