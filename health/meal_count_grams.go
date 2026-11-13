@@ -16,8 +16,33 @@ func countFromMealChunk(ch string) float64 {
 	if m := itemEggCountRe.FindStringSubmatch(ch); len(m) > 1 {
 		return parseFloatLoose(m[1])
 	}
-	if m := itemTimesRe.FindStringSubmatch(ch); len(m) > 1 {
-		return parseFloatLoose(m[1])
+	// Ignore × inside "(…)" notes (e.g. yield ÷5×3).
+	if c := countTimesOutsideParens(ch); c > 0 {
+		return c
+	}
+	return 0
+}
+
+func countTimesOutsideParens(ch string) float64 {
+	depth := 0
+	rs := []rune(ch)
+	for i, r := range rs {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case '×':
+			if depth > 0 {
+				continue
+			}
+			rest := strings.TrimSpace(string(rs[i+1:]))
+			if m := regexp.MustCompile(`^(\d+(?:\.\d+)?)`).FindStringSubmatch(rest); len(m) > 1 {
+				return parseFloatLoose(m[1])
+			}
+		}
 	}
 	return 0
 }
@@ -73,6 +98,24 @@ func normalizeMealItemCountGrams(it *MealItem) {
 			}
 		}
 	}
+	clearMealItemCountUnlessMultiplier(it, ch)
+}
+
+// clearMealItemCountUnlessMultiplier drops count when markdown has no real unit multiplier (×N) or egg count.
+func clearMealItemCountUnlessMultiplier(it *MealItem, ch string) {
+	if it == nil || it.Count <= 0 {
+		return
+	}
+	if itemEggCountRe.FindStringSubmatch(ch) != nil {
+		return
+	}
+	if itemEggsTimesRe.FindStringSubmatch(ch) != nil {
+		return
+	}
+	if countTimesOutsideParens(ch) > 0 {
+		return
+	}
+	it.Count = 0
 }
 
 // firstGramsFollowedByTimes is true for "12 g ×3" style per-unit weights, not "3 eggs 165 g".
@@ -87,7 +130,7 @@ func firstGramsFollowedByTimes(ch string) (unitG float64, ok bool) {
 	}
 	unitG = parseFloatLoose(m[1])
 	rest := strings.TrimSpace(ch[loc[1]:])
-	if !itemTimesRe.MatchString(rest) {
+	if !regexp.MustCompile(`(?i)^(?:edible\s*)?×\s*\d`).MatchString(rest) {
 		return 0, false
 	}
 	return unitG, true

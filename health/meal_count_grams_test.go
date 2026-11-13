@@ -41,6 +41,19 @@ func TestParseOmelet2EggsNoGrams(t *testing.T) {
 	}
 }
 
+func TestParseSoupTomatoMixNoSpuriousCount(t *testing.T) {
+	it, ok := parseOneMealChunk("soup-tomato mix 360 g")
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 360 {
+		t.Fatalf("grams=%v want 360", it.Grams)
+	}
+	if it.Count != 0 {
+		t.Fatalf("count=%v want 0 (not grams)", it.Count)
+	}
+}
+
 func TestParseRusksPerUnitTimes3(t *testing.T) {
 	it, ok := parseOneMealChunk("Rusks no salt 12 g ×3")
 	if !ok {

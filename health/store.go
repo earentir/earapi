@@ -2,7 +2,6 @@ package health
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -197,10 +196,7 @@ func saveDayTxUser(tx *sql.Tx, userID string, d *Day, marginPercent float64) err
 		return err
 	}
 	for slot, m := range d.Meals {
-		items, _ := json.Marshal(m.Items)
-		if items == nil {
-			items = []byte("[]")
-		}
+		items := encodeMealItemsJSON(m.Items)
 		_, err := tx.Exec(`INSERT INTO meal_slots (user_id, date, slot, raw_text, sodium_mg, kcal, kcal_margin, items_json)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			userID, d.Date, slot, m.Raw, m.SodiumMg, m.Kcal, m.KcalMargin, string(items))
@@ -671,7 +667,7 @@ func (s *Store) readDayUnlocked(date string) (*Day, bool) {
 			continue
 		}
 		m.Raw = raw
-		_ = json.Unmarshal([]byte(itemsJSON), &m.Items)
+		m.Items = decodeMealItemsJSON(itemsJSON)
 		d.Meals[slot] = m
 	}
 	if err := rows.Err(); err != nil {
@@ -736,6 +732,7 @@ func (s *Store) GetDay(date string) (*Day, bool) {
 		return &dd, true
 	}
 	s.enrichDayTotalsUnlocked(&dd)
+	s.attachDayDisplay(&dd)
 	return &dd, true
 }
 
@@ -1040,6 +1037,7 @@ func (s *Store) FilterDays(from, to, exactDate, q, slot string, limit int) []Day
 			continue
 		}
 		s.enrichDayTotalsUnlocked(d)
+		s.attachDayDisplay(d)
 		out = append(out, *d)
 		if limit > 0 && len(out) >= limit {
 			break
@@ -1285,10 +1283,7 @@ func insertFoodUser(exec sqlExec, userID string, f Food) error {
 }
 
 func insertStockLotUser(exec sqlExec, userID string, lot StockLot) error {
-	items, _ := json.Marshal(lot.Items)
-	if items == nil {
-		items = []byte("[]")
-	}
+	items := encodeMealItemsJSON(lot.Items)
 	active := 0
 	if stockLotIsActive(lot) {
 		active = 1

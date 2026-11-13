@@ -2,7 +2,6 @@ package health
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -67,7 +66,7 @@ func scanStockFields(scan scanFn) (StockLot, error) {
 		lot.Notes = notes.String
 	}
 	if itemsJSON != "" {
-		_ = json.Unmarshal([]byte(itemsJSON), &lot.Items)
+		lot.Items = decodeMealItemsJSON(itemsJSON)
 	}
 	if kcal.Valid {
 		v := kcal.Float64
@@ -230,10 +229,7 @@ func (s *Store) UpsertStockLot(lot StockLot) (StockLot, error) {
 		lot.ID = UniqueSlug(name, taken)
 	}
 	lot.Name = name
-	items, _ := json.Marshal(lot.Items)
-	if items == nil {
-		items = []byte("[]")
-	}
+	items := encodeMealItemsJSON(lot.Items)
 	active := 0
 	if stockLotIsActive(lot) {
 		active = 1
