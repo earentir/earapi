@@ -66,6 +66,7 @@ type Day struct {
 	LegacyTotals DayTotals           `json:"legacy_totals,omitempty"` // markdown day column; UI hover only
 	BP           string              `json:"bp,omitempty"`
 	Walking      string              `json:"walking,omitempty"`
+	Display      *DayDisplay         `json:"display,omitempty"` // bands + item gaps (server-only math)
 }
 
 // ValidMealSlots are accepted slot/type values.

@@ -175,6 +175,63 @@ func (s *Store) ListNutritionGaps(from, to string, itemLimit int) NutritionGaps 
 	return out
 }
 
+func collectItemGaps(d *Day, foods []Food, s *Store, limit int) []ItemGap {
+	if d == nil {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	var out []ItemGap
+	for _, slot := range []string{"lunch", "dinner", "snack"} {
+		m, ok := d.Meals[slot]
+		if !ok {
+			continue
+		}
+		var walk func(items []MealItem, prefix string)
+		walk = func(items []MealItem, prefix string) {
+			for i, it := range items {
+				ref := fmt.Sprintf("%s/%s/%d", d.Date, slot, i)
+				if prefix != "" {
+					ref = prefix + "/" + fmt.Sprint(i)
+				}
+				if len(it.Parts) > 0 {
+					walk(it.Parts, ref)
+					continue
+				}
+				if !s.itemNeedsNutrition(it, foods) {
+					continue
+				}
+				out = append(out, ItemGap{
+					Ref: ref, Date: d.Date, Slot: slot, Index: i,
+					Name: it.Name, Grams: it.Grams, Note: strings.TrimSpace(it.Note),
+				})
+				if len(out) >= limit {
+					return
+				}
+			}
+		}
+		walk(m.Items, "")
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// itemGapsForDay lists meal lines on one day that still need catalog data (after nutrients are computed).
+func (s *Store) itemGapsForDay(d *Day, limit int) []ItemGap {
+	s.mu.Lock()
+	foods := s.listFoodsUnlocked()
+	s.mu.Unlock()
+	return collectItemGaps(d, foods, s, limit)
+}
+
+func (s *Store) itemGapsForMeal(date, slot string, meal MealSlot, limit int) []ItemGap {
+	d := &Day{Date: date, Meals: map[string]MealSlot{slot: meal}}
+	return s.itemGapsForDay(d, limit)
+}
+
 func parseISODate(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	if len(s) > 10 {

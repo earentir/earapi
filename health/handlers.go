@@ -24,6 +24,8 @@ func RegisterRoutes(r *gin.Engine, svc *Service) {
 		p.GET("/overview", svc.handleOverview)
 		p.GET("/gaps", svc.handleNutritionGaps)
 		p.POST("/fill", svc.handleNutritionFill)
+		p.POST("/nutrition/compute/day", svc.handleNutritionComputeDay)
+		p.POST("/nutrition/compute/meal", svc.handleNutritionComputeMeal)
 		p.POST("/log", svc.handleLog)
 
 		p.GET("/weight/latest", svc.handleWeightLatest)
@@ -94,6 +96,8 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"GET /health/v1/overview?days=14",
 			"GET /health/v1/gaps?from=&to=&limit=",
 			"POST /health/v1/fill",
+			"POST /health/v1/nutrition/compute/day  (body: day json; returns scaled meals + display bands/gaps)",
+			"POST /health/v1/nutrition/compute/meal (body: date, slot, meal, legacy_totals?)",
 			"POST /health/v1/log",
 			"GET /health/v1/weight/latest",
 			"GET /health/v1/weight?from=&to=",
@@ -107,7 +111,7 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"PUT /health/v1/foods/:id",
 			"DELETE /health/v1/foods/:id",
 			"GET /health/v1/settings",
-			"PUT /health/v1/settings  (body: soft_low_kcal, soft_high_kcal, gain_min_kcal, meal_margin_percent)",
+			"PUT /health/v1/settings  (body: soft_low_kcal, soft_high_kcal, gain_min_kcal, soft_low_sodium_mg, soft_high_sodium_mg, ceiling_sodium_mg, meal_margin_percent, legacy_diff_*)",
 			"GET /health/v1/stock?active=1",
 			"GET /health/v1/stock/:id",
 			"POST /health/v1/stock",
@@ -193,6 +197,55 @@ func (s *Service) handleNutritionFill(c *gin.Context) {
 		return
 	}
 	out, err := st.ApplyNutritionFill(body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (s *Service) handleNutritionComputeDay(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body Day
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	if body.Meals == nil {
+		body.Meals = map[string]MealSlot{}
+	}
+	if body.LegacyTotals.Kcal <= 0 && body.LegacyTotals.SodiumMg <= 0 && body.Date != "" {
+		if stored, found := st.GetDay(body.Date); found {
+			body.LegacyTotals = stored.LegacyTotals
+		}
+	}
+	out, err := st.computeDayWithDisplay(&body)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (s *Service) handleNutritionComputeMeal(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Date         string     `json:"date"`
+		Slot         string     `json:"slot"`
+		Meal         MealSlot   `json:"meal"`
+		LegacyTotals DayTotals  `json:"legacy_totals"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	out, err := st.ComputeMealSlotNutrition(body.Date, body.Slot, body.Meal, body.LegacyTotals)
 	if err != nil {
 		writeStoreErr(c, err)
 		return
