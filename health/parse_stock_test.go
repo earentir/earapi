@@ -39,7 +39,7 @@ func TestParseStockMarkdown_activeLots(t *testing.T) {
 	if names["Sole-tomato sauce (Oct 30 batch)"] < 300 || names["Sole-tomato sauce (Oct 30 batch)"] > 310 {
 		t.Fatalf("sole-tomato remaining: %v", names)
 	}
-	if soup, ok := names["soup-tomato mix"]; !ok || soup < 330 || soup > 350 {
+	if soup, ok := names["soup-tomato mix"]; !ok || soup < 260 || soup > 280 {
 		t.Fatalf("soup-tomato: %v", names)
 	}
 	var bean *StockLot

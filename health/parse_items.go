@@ -259,7 +259,7 @@ func gramsFromMealChunk(ch string) float64 {
 	if m := itemBoneToEdibleRe.FindStringSubmatch(ch); len(m) > 1 {
 		return parseFloatLoose(m[1])
 	}
-	if edible := lastEdibleGrams(ch); edible > 0 {
+	if edible := primaryEdibleGrams(ch); edible > 0 {
 		return edible
 	}
 	if m := itemRawToMeatRe.FindStringSubmatch(ch); len(m) > 1 {
@@ -283,12 +283,20 @@ func gramsFromMealChunk(ch string) float64 {
 	return 0
 }
 
-func lastEdibleGrams(ch string) float64 {
-	matches := itemEdibleGramsRe.FindAllStringSubmatch(ch, -1)
-	if len(matches) == 0 {
-		return 0
+// primaryEdibleGrams is the first "N g edible" before "(" — not reference text in the note.
+func primaryEdibleGrams(ch string) float64 {
+	head := ch
+	if p := strings.Index(ch, "("); p > 0 {
+		head = ch[:p]
 	}
-	return parseFloatLoose(matches[len(matches)-1][1])
+	if m := itemEdibleGramsRe.FindStringSubmatch(head); len(m) > 1 {
+		return parseFloatLoose(m[1])
+	}
+	return 0
+}
+
+func lastEdibleGrams(ch string) float64 {
+	return primaryEdibleGrams(ch)
 }
 
 func lastMeatGrams(ch string) float64 {
@@ -365,17 +373,11 @@ func parseOneMealChunk(ch string) (MealItem, bool) {
 	return item, true
 }
 
+// edibleGramsBeforeCount is true only for "155 g edible ×2" (× right after edible), not stray × in notes.
+var edibleGramsTimesRe = regexp.MustCompile(`(?i)(?:~)?\d+(?:\.\d+)?\s*g\s*edible\s*×\s*\d`)
+
 func edibleGramsBeforeCount(ch string) bool {
-	low := strings.ToLower(ch)
-	ti := strings.Index(ch, "×")
-	if ti < 0 {
-		return false
-	}
-	if !itemEdibleGramsRe.MatchString(ch) {
-		return false
-	}
-	ei := strings.Index(low, "edible")
-	return ei >= 0 && ei < ti
+	return edibleGramsTimesRe.MatchString(ch)
 }
 
 func stripChunkForParse(ch string) string {

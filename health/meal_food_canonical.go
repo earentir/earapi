@@ -36,6 +36,8 @@ func canonicalMealFoodName(name string) string {
 		return "chicken souvlaki"
 	case strings.Contains(low, "bonora") && strings.Contains(low, "chocolate"):
 		return "Bonora milk chocolate bar"
+	case strings.Contains(low, "fasolada") || (strings.Contains(low, "gigantes") && strings.Contains(low, "supermarket")):
+		return "Sklavenitis gigantes (fasolada) ready meal"
 	case strings.Contains(low, "rusk"):
 		return "rusks no salt"
 	case low == "grana" || strings.HasPrefix(low, "grana "):

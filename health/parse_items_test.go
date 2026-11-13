@@ -17,6 +17,9 @@ func TestParseMealItemsFromRawDinner(t *testing.T) {
 	if items[0].Name != "Soup-tomato mix" || items[0].Grams != 400 {
 		t.Fatalf("first %+v", items[0])
 	}
+	if items[0].Count != 0 {
+		t.Fatalf("soup count %v want 0", items[0].Count)
+	}
 	if items[1].Name != "moussaka" || items[1].Grams != 200 {
 		t.Fatalf("moussaka %+v", items[1])
 	}
@@ -107,6 +110,28 @@ func TestParseLegsEdibleTimes2(t *testing.T) {
 	}
 	if it.Grams != 310 {
 		t.Fatalf("grams=%v want 310 (155×2)", it.Grams)
+	}
+}
+
+func TestParseWingsNov13YieldNote(t *testing.T) {
+	ch := `roasted wings 105 g edible (264 g whole, 159 g bone; 3 wings, Nov 12 yield ÷5×3)`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 105 {
+		t.Fatalf("grams=%v want 105 total edible (not 105×3)", it.Grams)
+	}
+}
+
+func TestParseWingsNov13NoStealEdibleFromNoteTail(t *testing.T) {
+	ch := `roasted wings 105 g edible (264 g whole, 159 g bone; 3 wings, scaled from Nov 12 five-wing 175 g edible)`
+	it, ok := parseOneMealChunk(ch)
+	if !ok {
+		t.Fatal("parse fail")
+	}
+	if it.Grams != 105 {
+		t.Fatalf("grams=%v want 105 (not 175 from note)", it.Grams)
 	}
 }
 
