@@ -842,6 +842,9 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 	}
 	cur, exists := d.Meals[slot]
 	if replace || !exists {
+		if replace && exists && strings.TrimSpace(meal.Raw) == "" && strings.TrimSpace(cur.Raw) != "" {
+			meal.Raw = cur.Raw
+		}
 		d.Meals[slot] = meal
 	} else {
 		if meal.Raw != "" {

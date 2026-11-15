@@ -8,11 +8,10 @@ func (s *Store) RepairAllDaysFromStoredRaw(mdDays []Day) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	legacyByDate := map[string]DayTotals{}
+	mdDayByDate := map[string]Day{}
 	for i := range mdDays {
-		lt := mdDays[i].LegacyTotals
-		if lt.Kcal > 0 || lt.SodiumMg > 0 {
-			legacyByDate[mdDays[i].Date] = lt
-		}
+		legacyByDate[mdDays[i].Date] = mdDays[i].LegacyTotals
+		mdDayByDate[mdDays[i].Date] = mdDays[i]
 	}
 	foods := s.listFoodsUnlocked()
 	stock, _ := s.listStockLotsUnlocked()
@@ -38,8 +37,20 @@ func (s *Store) RepairAllDaysFromStoredRaw(mdDays []Day) (int, error) {
 			continue
 		}
 		keepLegacy := d.LegacyTotals
-		if lt, ok := legacyByDate[date]; ok {
+		if lt := legacyByDate[date]; lt.Kcal > 0 || lt.SodiumMg > 0 {
 			keepLegacy = lt
+		}
+		if md, ok := mdDayByDate[date]; ok {
+			for _, slot := range []string{"lunch", "dinner", "snack"} {
+				m := d.Meals[slot]
+				if strings.TrimSpace(m.Raw) != "" {
+					continue
+				}
+				if mr, ok := md.Meals[slot]; ok && strings.TrimSpace(mr.Raw) != "" {
+					m.Raw = mr.Raw
+					d.Meals[slot] = m
+				}
+			}
 		}
 		if !rebuildDayMealsFromRaw(d, foods, stock) {
 			continue
