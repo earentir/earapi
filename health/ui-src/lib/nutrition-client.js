@@ -40,6 +40,23 @@ export function dayTotalsView() {
   return { kcal: Number(t?.kcal) || 0, sodium_mg: Number(t?.sodium_mg) || 0 };
 }
 
+/** Stored markdown legacy + computed totals/display (for legacy diff dots). */
+export function legacyDayForDiff() {
+  const computed = nutritionDay();
+  const stored = state.day;
+  if (!stored) return computed || {};
+  return {
+    ...(computed || stored),
+    legacy_totals: stored.legacy_totals,
+    display: computed?.display || stored?.display,
+    totals: computed?.totals ?? stored?.totals,
+  };
+}
+
+export function mealSlotRaw(slot) {
+  return state.day?.meals?.[slot]?.raw || nutritionDay()?.meals?.[slot]?.raw || "";
+}
+
 export function itemGapRef(slot, idx, partIdx) {
   const date = state.date || nutritionDay()?.date || "";
   if (partIdx == null) return `${date}/${slot}/${idx}`;
@@ -81,8 +98,12 @@ export async function refreshDayNutrition(draftItems, mealDraft) {
   const body = buildDayComputeBody(draftItems, mealDraft);
   const out = await api("/nutrition/compute/day", { method: "POST", body: JSON.stringify(body) });
   state.computedDay = out.day || null;
-  if (out.display && state.computedDay) {
-    state.computedDay.display = out.display;
+  if (state.computedDay) {
+    if (out.display) state.computedDay.display = out.display;
+    const leg = state.day?.legacy_totals;
+    if (leg && (Number(leg.kcal) > 0 || Number(leg.sodium_mg) > 0)) {
+      state.computedDay.legacy_totals = leg;
+    }
   }
   return state.computedDay;
 }

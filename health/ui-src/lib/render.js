@@ -10,7 +10,11 @@ import {
   itemGapFor,
   scheduleDayNutritionCompute,
   refreshDayNutrition,
+  legacyDayForDiff,
+  mealSlotRaw,
 } from "./nutrition-client.js";
+import { parseSlotLegacyFromRaw, slotLegacyTooltip } from "./legacy-totals.js";
+import { legacyDiffBandClass } from "./legacy-diff-bands.js";
 import { themeSelectHtml, saveTheme } from "./theme.js";
 import { state, emptyItem, emptySlot, emptyDraft, emptyStockSet, emptyStockForm } from "./state.js";
 import {
@@ -153,43 +157,75 @@ function legacyDotTooltip(d, field) {
   return v > 0 ? `Legacy: ${fmt(v, 0)}kcal` : "";
 }
 
-/** Dot after kcal or mg — color and hover for that nutrient only. */
-function legacyDiffDot(d, field) {
-  const leg = d?.legacy_totals;
-  const disp = dayDisplay(d);
-  const isNa = field === "sodium";
-  const legVal = isNa ? Number(leg?.sodium_mg) : Number(leg?.kcal);
-  if (!leg || legVal <= 0) return "";
-  const tip = legacyDotTooltip(d, field);
+function legacyDiffDotMarkup(tip, band) {
   if (!tip) return "";
-  const band = (isNa ? disp.sodium_diff_band : disp.kcal_diff_band) || "muted";
-  if (band === "muted") return "";
-  const bandClass = ` day-legacy-diff-dot--${band}`;
+  const b = band && band !== "muted" ? band : "green";
+  const bandClass = ` day-legacy-diff-dot--${b}`;
   return `<span class="day-legacy-hover day-legacy-diff-dot-wrap" tabindex="0" aria-label="${esc(tip)}">
     <span class="day-legacy-diff-dot${bandClass}" aria-hidden="true"></span>
     <span class="day-legacy-hover-tip" role="tooltip">${esc(tip)}</span>
   </span>`;
 }
 
-function dayHeaderTotalMarkup(d, totals) {
+function legacyDiffBandForField(d, field) {
   const disp = dayDisplay(d);
+  const isNa = field === "sodium";
+  let band = isNa ? disp.sodium_diff_band : disp.kcal_diff_band;
+  if (band && band !== "muted") return band;
+  const leg = d?.legacy_totals;
+  const legVal = isNa ? Number(leg?.sodium_mg) : Number(leg?.kcal);
+  if (!leg || legVal <= 0) return "muted";
+  const totals = d?.totals || dayTotalsView();
+  const cur = isNa ? Number(totals.sodium_mg) : Number(totals.kcal);
+  return legacyDiffBandClass(cur - legVal, state.kcalBudget).replace("meal-band--", "");
+}
+
+/** Dot after kcal or mg — color and hover for that nutrient only (day legacy column). */
+function legacyDiffDot(d, field) {
+  const leg = d?.legacy_totals;
+  const isNa = field === "sodium";
+  const legVal = isNa ? Number(leg?.sodium_mg) : Number(leg?.kcal);
+  if (!leg || legVal <= 0) return "";
+  const tip = legacyDotTooltip(d, field);
+  if (!tip) return "";
+  const band = legacyDiffBandForField(d, field);
+  return legacyDiffDotMarkup(tip, band);
+}
+
+/** Dot for lunch/dinner/snack row vs **~mg / ~kcal** in that slot's raw markdown. */
+function slotLegacyDiffDot(slot, field) {
+  const leg = parseSlotLegacyFromRaw(mealSlotRaw(slot));
+  const isNa = field === "sodium";
+  const legVal = isNa ? leg.sodium_mg : leg.kcal;
+  if (legVal <= 0) return "";
+  const m = nutritionDay()?.meals?.[slot];
+  const cur = isNa ? Number(m?.sodium_mg) || 0 : Number(m?.kcal) || 0;
+  const tip = slotLegacyTooltip(field, legVal);
+  const band = legacyDiffBandClass(cur - legVal, state.kcalBudget).replace("meal-band--", "");
+  return legacyDiffDotMarkup(tip, band);
+}
+
+function dayHeaderTotalMarkup(d, totals) {
+  const diffDay = legacyDayForDiff();
+  const disp = dayDisplay(diffDay);
   const kcal = Number(totals?.kcal) || 0;
   const sod = Number(totals?.sodium_mg) || 0;
   const intakeBand = mealBandClass(disp.intake_bar_band);
   const naIntakeBand = mealBandClass(disp.sodium_intake_band);
-  const kDot = legacyDiffDot(d, "kcal");
-  const naDot = legacyDiffDot(d, "sodium");
+  const kDot = legacyDiffDot(diffDay, "kcal");
+  const naDot = legacyDiffDot(diffDay, "sodium");
   return `<span class="mono day-card-head-totals"><span class="day-card-head-energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span><span class="day-card-head-energy-unit"> kcal</span>${kDot}</span>, <span class="day-card-head-energy"><span class="meal-band-na ${naIntakeBand}">${fmt(sod, 0)}</span><span class="day-card-head-energy-unit"> mg Na</span>${naDot}</span></span>`;
 }
 
 function dayPanelEnergyMarkup(totals, d) {
-  const disp = dayDisplay(d);
+  const diffDay = legacyDayForDiff();
+  const disp = dayDisplay(diffDay);
   const kcal = Number(totals?.kcal) || 0;
   const sod = Number(totals?.sodium_mg) || 0;
   const intakeBand = mealBandClass(disp.intake_bar_band);
   const naIntakeBand = mealBandClass(disp.sodium_intake_band);
-  const kDot = legacyDiffDot(d, "kcal");
-  const naDot = legacyDiffDot(d, "sodium");
+  const kDot = legacyDiffDot(diffDay, "kcal");
+  const naDot = legacyDiffDot(diffDay, "sodium");
   return {
     kcal: `<span class="stat-value mono stat-value--energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span> <span class="stat-unit">kcal</span>${kDot}</span>`,
     sodium: `<span class="stat-value mono stat-value--energy"><span class="meal-band-na ${naIntakeBand}">${fmt(sod, 0)}</span> <span class="stat-unit">mg</span>${naDot}</span>`,
@@ -216,10 +252,16 @@ function daySummaryPanel() {
     const t = slotMealTotals(slot);
     const metricsHtml = t
       ? `<div class="day-slot-metrics">
-          <span class="day-slot-num day-slot-kcal mono">${fmt(t.kcal, 0)}</span>
-          <span class="day-slot-unit stat-unit">kcal</span>
-          <span class="day-slot-num day-slot-na mono">${fmt(t.sodium_mg, 0)}</span>
-          <span class="day-slot-unit stat-unit">mg</span>
+          <span class="day-slot-metric-line">
+            <span class="day-slot-num day-slot-kcal mono">${fmt(t.kcal, 0)}</span>
+            <span class="day-slot-unit stat-unit">kcal</span>
+            ${slotLegacyDiffDot(slot, "kcal")}
+          </span>
+          <span class="day-slot-metric-line">
+            <span class="day-slot-num day-slot-na mono">${fmt(t.sodium_mg, 0)}</span>
+            <span class="day-slot-unit stat-unit">mg</span>
+            ${slotLegacyDiffDot(slot, "sodium")}
+          </span>
         </div>`
       : `<span class="day-slot-metrics-empty mono muted">${EMPTY_CELL}</span>`;
     return `<div class="day-slot-stat">

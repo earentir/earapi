@@ -907,12 +907,18 @@ button.row-vert-label.pick-tag:hover {
 }
 .day-slot-metrics {
   grid-column: 2;
-  display: grid;
-  grid-template-columns: auto max-content;
-  column-gap: 0.3rem;
-  row-gap: 0.12rem;
-  justify-items: end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.12rem;
   text-align: right;
+}
+.day-slot-metric-line {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.2rem;
 }
 .day-slot-metrics-empty {
   grid-column: 2;
