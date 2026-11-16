@@ -1,5 +1,5 @@
 import { fmt } from "./util.js";
-import { kcalBudgetBand, kcalBudgetBandLabel, mergedKcalBudget } from "./kcal-budget.js";
+import { dayIntakeBand, mergedKcalBudget } from "./kcal-budget.js";
 
 const BAND_FILL = {
   green: "var(--ok, #3ecf8e)",
@@ -9,18 +9,11 @@ const BAND_FILL = {
   none: "color-mix(in oklab, var(--color-base-content) 35%, transparent)",
 };
 
-function bandForDay(d, budget) {
-  const b = budget || mergedKcalBudget(null);
-  const fromServer = d.display?.intake_bar_band;
-  if (fromServer && fromServer !== "none") return fromServer;
-  return kcalBudgetBand(d.totals?.kcal, b);
-}
-
 export function daysKcalChartSectionHtml() {
   return `<section class="card days-kcal-chart-card">
     <h2 style="margin:0 0 0.35rem;font-size:1rem">Daily kcal</h2>
     <p class="muted days-kcal-chart-legend" style="margin:0 0 0.5rem;font-size:0.78rem">
-      Scale to gain line · bands match day cards (green below soft low, yellow in band, orange above soft, red at gain+)
+      Scale to gain line. Bands match filters: green (below soft low), yellow (soft band), orange (above soft high), red (gain+)
     </p>
     <div class="days-kcal-chart-host" data-days-kcal-chart></div>
   </section>`;
@@ -33,7 +26,7 @@ export function mountDaysKcalChart(host, days, budgetRaw) {
     .map((d) => ({
       date: d.date,
       kcal: Number(d.totals?.kcal) || 0,
-      band: bandForDay(d, budget),
+      band: dayIntakeBand(d, budget),
     }))
     .filter((d) => d.date && d.kcal > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -132,9 +125,8 @@ export function mountDaysKcalChart(host, days, budgetRaw) {
     g.appendChild(rect);
 
     const showTip = (evt) => {
-      const bandLabel = kcalBudgetBandLabel(s.band) || s.band;
       tip.hidden = false;
-      tip.textContent = `${s.date} · ${fmt(s.kcal, 0)} kcal — ${bandLabel}`;
+      tip.textContent = `${s.date}, ${fmt(s.kcal, 0)} kcal`;
       const hostRect = host.getBoundingClientRect();
       const xPos = evt?.clientX != null ? evt.clientX - hostRect.left : x;
       const yPos = evt?.clientY != null ? evt.clientY - hostRect.top : y1;
