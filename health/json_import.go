@@ -15,12 +15,17 @@ func loadLegacyJSONBundle(dir string) (JSONBundle, error) {
 	return LoadJSONBundleFromDir(dir)
 }
 
-// JSONBundle is a single-file export/import format.
+// JSONBundle is a single-file export/import format (v1).
 type JSONBundle struct {
-	Weights []WeighIn  `json:"weights"`
-	Foods   []Food     `json:"foods"`
-	Days    []Day      `json:"days"`
-	Stock   []StockLot `json:"stock,omitempty"`
+	Version     int                 `json:"version,omitempty"`
+	ExportedAt  string              `json:"exported_at,omitempty"`
+	Scope       string              `json:"scope,omitempty"`
+	Settings    *KcalBudgetSettings `json:"settings,omitempty"`
+	Weights     []WeighIn           `json:"weights"`
+	Foods       []Food              `json:"foods"`
+	FoodAliases []FoodAlias         `json:"food_aliases,omitempty"`
+	Days        []Day               `json:"days"`
+	Stock       []StockLot          `json:"stock,omitempty"`
 }
 
 // LoadJSONBundleFromDir reads weight.json, foods.json, and days/*.json from dir.
@@ -74,20 +79,9 @@ func LoadJSONBundleFile(path string) (JSONBundle, error) {
 	return bundle, nil
 }
 
-// ImportBundle writes bundle into the store (replace or merge).
+// ImportBundle writes bundle into the store (replace or merge, scope all).
 func (s *Store) ImportBundle(bundle JSONBundle, merge bool) (map[string]int, error) {
-	if merge {
-		return s.mergeBundle(bundle)
-	}
-	if err := s.ReplaceImported("", bundle.Weights, bundle.Foods, bundle.Days, bundle.Stock); err != nil {
-		return nil, err
-	}
-	return map[string]int{
-		"weights": len(bundle.Weights),
-		"foods":   len(bundle.Foods),
-		"days":    len(bundle.Days),
-		"stock":   len(bundle.Stock),
-	}, nil
+	return s.ImportBundleScope(bundle, "all", merge)
 }
 
 func (s *Store) mergeBundle(bundle JSONBundle) (map[string]int, error) {
@@ -130,10 +124,28 @@ func (s *Store) mergeBundle(bundle JSONBundle) (map[string]int, error) {
 		counts["foods"]++
 	}
 	for _, d := range bundle.Days {
-		if err := s.PutDay(d); err != nil {
+		if err := s.PutDay(dayForImport(d)); err != nil {
 			return counts, err
 		}
 		counts["days"]++
+	}
+	for _, lot := range bundle.Stock {
+		if _, err := s.UpsertStockLot(lot); err != nil {
+			return counts, err
+		}
+		counts["stock"]++
+	}
+	for _, a := range bundle.FoodAliases {
+		if _, err := s.AddFoodAlias(a.FoodID, a.Alias); err != nil {
+			return counts, err
+		}
+		counts["food_aliases"]++
+	}
+	if bundle.Settings != nil {
+		if _, err := s.PutKcalBudgetSettings(*bundle.Settings); err != nil {
+			return counts, err
+		}
+		counts["settings"] = 1
 	}
 	return counts, nil
 }

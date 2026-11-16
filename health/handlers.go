@@ -41,6 +41,7 @@ func RegisterRoutes(r *gin.Engine, svc *Service) {
 		p.PUT("/foods/:id", svc.handleFoodUpdate)
 		p.DELETE("/foods/:id", svc.handleFoodDelete)
 		p.POST("/foods/:id/aliases", svc.handleFoodAddAlias)
+		p.DELETE("/foods/:id/aliases", svc.handleFoodDeleteAlias)
 
 		p.GET("/days", svc.handleDaysList)
 		p.GET("/days/:date", svc.handleDayGet)
@@ -54,6 +55,7 @@ func RegisterRoutes(r *gin.Engine, svc *Service) {
 		p.PUT("/days/:date/meals/:slot", svc.handleDayMealPut)
 		p.DELETE("/days/:date/meals/:slot", svc.handleDayMealDelete)
 
+		p.GET("/export/json", svc.handleExportJSON)
 		p.GET("/import/json/status", svc.handleImportJSONStatus)
 		p.POST("/import/json", svc.handleImportJSON)
 		p.POST("/import/markdown", svc.handleImportMarkdown)
@@ -130,7 +132,9 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"POST /health/v1/days/:date/meals",
 			"PUT /health/v1/days/:date/meals/:slot",
 			"DELETE /health/v1/days/:date/meals/:slot",
+			"GET /health/v1/export/json?scope=all|foods|days|stock|weight",
 			"GET /health/v1/import/json/status",
+			"POST /health/v1/import/json?scope=&merge=true",
 			"POST /health/v1/import/json?merge=false&source=legacy",
 			"POST /health/v1/import/markdown?replace=true",
 			"POST /health/v1/import/repair-days?from_md=1  (re-parse meal raw, rescale; backfill legacy totals from mddata)",
@@ -428,6 +432,25 @@ func (s *Service) handleFoodAddAlias(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"alias": out})
 }
 
+func (s *Service) handleFoodDeleteAlias(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Alias string `json:"alias"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	if err := st.DeleteFoodAlias(c.Param("id"), body.Alias); err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func (s *Service) handleFoodGet(c *gin.Context) {
 	st, ok := s.store(c)
 	if !ok {
@@ -438,7 +461,10 @@ func (s *Service) handleFoodGet(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"food": f})
+	c.JSON(http.StatusOK, gin.H{
+		"food":    f,
+		"aliases": st.ListFoodAliasesForFood(f.ID),
+	})
 }
 
 func (s *Service) handleFoodAdd(c *gin.Context) {
@@ -859,6 +885,7 @@ func (s *Service) handleImportJSON(c *gin.Context) {
 		return
 	}
 	merge := c.Query("merge") == "true" || c.Query("merge") == "1"
+	scope := c.DefaultQuery("scope", "all")
 	source := strings.ToLower(c.DefaultQuery("source", "auto"))
 
 	var bundle JSONBundle
@@ -885,14 +912,15 @@ func (s *Service) handleImportJSON(c *gin.Context) {
 			return
 		}
 	}
-	if !bundleHasData(bundle) {
+	if !bundleHasDataScope(bundle, scope) {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "no data",
-			"hint":  "place legacy JSON in your import folder, POST a bundle with source=body, or use source=legacy",
+			"error":  "no data",
+			"scope":  scope,
+			"hint":   "POST JSON with fields for this scope (foods, food_aliases, days, stock, weights, or full bundle)",
 		})
 		return
 	}
-	counts, err := st.ImportBundle(bundle, merge)
+	counts, err := st.ImportBundleScope(bundle, scope, merge)
 	if err != nil {
 		writeStoreErr(c, err)
 		return
@@ -900,11 +928,22 @@ func (s *Service) handleImportJSON(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"imported": counts,
 		"merge":    merge,
+		"scope":    scope,
 	})
 }
 
-func bundleHasData(b JSONBundle) bool {
-	return len(b.Weights) > 0 || len(b.Foods) > 0 || len(b.Days) > 0
+func (s *Service) handleExportJSON(c *gin.Context) {
+	st, ok := s.store(c)
+	if !ok {
+		return
+	}
+	scope := c.DefaultQuery("scope", "all")
+	bundle, err := st.ExportBundle(scope)
+	if err != nil {
+		writeStoreErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, bundle)
 }
 
 func (s *Service) handleRepairDays(c *gin.Context) {
