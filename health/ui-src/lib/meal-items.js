@@ -14,6 +14,23 @@ export function setsInSlot(slot, excludeIdx) {
     .filter(({ it, j }) => j !== excludeIdx && itemHasParts(it));
 }
 
+/** Other set names in this slot matching query (set header name field only). */
+export function setNameSuggestions(slot, excludeIdx, query, limit = 10) {
+  const q = (query || "").trim().toLowerCase();
+  if (!q) return [];
+  const seen = new Set();
+  const out = [];
+  for (const { it } of setsInSlot(slot, excludeIdx)) {
+    const name = (it?.name || "").trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    if (!name.toLowerCase().includes(q)) continue;
+    seen.add(name.toLowerCase());
+    out.push(name);
+    if (out.length >= limit) return out;
+  }
+  return out;
+}
+
 export function loosePeersInSlot(slot, excludeIdx) {
   return (state.mealDraft[slot]?.items || [])
     .map((it, j) => ({ it, j }))
@@ -48,11 +65,12 @@ export function recomputeSetGrams(set, keepPartial) {
 export function cloneDraftItem(it) {
   const parts = Array.isArray(it.parts) ? it.parts.map(cloneDraftItem) : undefined;
   const isSet = !!it.is_set || (parts && parts.length > 0 && !it.stock_lot_id);
+  const foodID = it.food_id ?? it.foodId ?? "";
   return {
     name: it.name || "",
     grams: it.grams != null && it.grams !== "" ? it.grams : "",
     count: it.count != null && it.count !== "" ? it.count : "",
-    food_id: it.food_id || "",
+    food_id: foodID ? String(foodID) : "",
     stock_lot_id: it.stock_lot_id || "",
     kcal: it.kcal != null ? it.kcal : "",
     sodium_mg: it.sodium_mg != null ? it.sodium_mg : "",

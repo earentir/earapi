@@ -182,6 +182,64 @@ export function foodByAlias(aliases, foods, name) {
   return foods.find((f) => f.id === row.food_id) || null;
 }
 
+/** Fuzzy alias match (e.g. meal line "hot peppers" → alias "hot horn pepper"). */
+export function bestFoodByAlias(aliases, foods, mealLine) {
+  const q = foodMatchQuery(mealLine);
+  if (!q || !aliases?.length || !foods?.length) return null;
+  const exact = foodByAlias(aliases, foods, mealLine);
+  if (exact) return exact;
+  const scored = [];
+  for (const row of aliases) {
+    const alias = cleanFoodDisplayName(row.alias);
+    if (!alias) continue;
+    if (!catalogMatchesMealLine(alias, mealLine)) continue;
+    const sc = scoreFoodNameForMealLine(alias, mealLine);
+    if (sc < 80) continue;
+    const f = foods.find((x) => x.id === row.food_id);
+    if (f) scored.push({ f, sc });
+  }
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.sc - a.sc);
+  const bestSc = scored[0].sc;
+  const tied = scored.filter((x) => x.sc >= bestSc - 15);
+  const foodsSeen = new Set();
+  for (const x of tied) foodsSeen.add(x.f.id);
+  if (foodsSeen.size > 1) return null;
+  return scored[0].f;
+}
+
+/** Typeahead via aliases → catalog food (with which alias matched). */
+export function aliasFoodSuggestions(aliases, foods, itemName, limit = 8) {
+  const q = String(itemName ?? "").trim();
+  if (!q || !aliases?.length || !foods?.length) return [];
+  const parts = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const partial = /\s$/.test(q) ? "" : parts[parts.length - 1] || "";
+  const scored = [];
+  for (const row of aliases) {
+    const alias = cleanFoodDisplayName(row.alias);
+    if (!alias) continue;
+    const low = alias.toLowerCase();
+    if (partial) {
+      const wordHit = tokens(low).some((w) => w.startsWith(partial));
+      if (!low.includes(partial) && !wordHit) continue;
+    }
+    const sc = scoreFoodName(alias, foodMatchQuery(itemName));
+    if (partial && sc < 30 && !low.includes(partial)) continue;
+    const f = foods.find((x) => x.id === row.food_id);
+    if (f) scored.push({ f, alias, sc });
+  }
+  scored.sort((a, b) => b.sc - a.sc || a.alias.localeCompare(b.alias));
+  const out = [];
+  const seen = new Set();
+  for (const row of scored) {
+    if (seen.has(row.f.id)) continue;
+    seen.add(row.f.id);
+    out.push(row);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** Live typeahead while typing a meal line (prefix-friendly, not as strict as auto-link). */
 export function typeaheadFoodSuggestions(foods, itemName, limit = 8) {
   const raw = String(itemName ?? "").trim().toLowerCase();
@@ -206,10 +264,51 @@ export function typeaheadFoodSuggestions(foods, itemName, limit = 8) {
 }
 
 /** Typeahead list for meal name fields (catalog lookup while typing). */
-export function catalogFoodSuggestions(foods, itemName, limit = 8) {
+export function catalogFoodSuggestions(foods, itemName, limit = 8, aliases = null) {
+  return mealLineFoodSuggestions(foods, aliases, itemName, limit).map((row) => row.f);
+}
+
+/**
+ * Meal-line typeahead: when an alias matches what you type, the suggestion label is that alias
+ * (not the catalog name + “aka …”).
+ */
+export function mealLineFoodSuggestions(foods, aliases, itemName, limit = 8) {
   const q = String(itemName ?? "").trim();
   if (!q || !foods?.length) return [];
-  return typeaheadFoodSuggestions(foods, q, limit);
+  const byId = new Map();
+
+  if (aliases?.length) {
+    for (const row of aliasFoodSuggestions(aliases, foods, itemName, Math.max(limit, 8) * 2)) {
+      const prev = byId.get(row.f.id);
+      if (!prev || row.sc > prev.sc) {
+        byId.set(row.f.id, {
+          f: row.f,
+          label: cleanFoodDisplayName(row.alias),
+          via: "alias",
+          sc: row.sc,
+        });
+      }
+    }
+  }
+
+  for (const f of typeaheadFoodSuggestions(foods, q, limit)) {
+    if (byId.has(f.id)) continue;
+    const sc = scoreFoodName(f.name, foodMatchQuery(itemName));
+    byId.set(f.id, {
+      f,
+      label: cleanFoodDisplayName(f.name),
+      via: "catalog",
+      sc,
+    });
+  }
+
+  const out = [...byId.values()];
+  out.sort((a, b) => {
+    if (a.via === "alias" && b.via !== "alias") return -1;
+    if (b.via === "alias" && a.via !== "alias") return 1;
+    return b.sc - a.sc || a.label.localeCompare(b.label);
+  });
+  return out.slice(0, limit);
 }
 
 /** Foods that might match this line name (for user pick when several are close). */

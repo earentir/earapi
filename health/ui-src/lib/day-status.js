@@ -29,7 +29,8 @@ export function mealItemsNeedReparse(items, raw) {
   return false;
 }
 
-function gapsForDate(gapItems, date) {
+function gapsForDate(gapItems, date, gapIndex) {
+  if (gapIndex?.get) return gapIndex.get(date) || [];
   return (gapItems || []).filter((g) => g.date === date);
 }
 
@@ -46,7 +47,7 @@ function gapLineLabel(g) {
 /**
  * @returns {{ level: "ok"|"warn"|"bad", title: string, lines: string[] }}
  */
-export function dayCardStatus(day, { gapItems = [], weights = [] } = {}) {
+export function dayCardStatus(day, { gapItems = [], gapIndex = null, weights = [] } = {}) {
   const reasons = [];
   const severe = [];
 
@@ -72,7 +73,7 @@ export function dayCardStatus(day, { gapItems = [], weights = [] } = {}) {
     }
   }
 
-  const gaps = gapsForDate(gapItems, day.date);
+  const gaps = gapsForDate(gapItems, day.date, gapIndex);
   if (gaps.length) {
     reasons.push(`Missing catalog / per 100 g (${gaps.length}):`);
     for (const g of gaps) reasons.push(`  \u2022 ${gapLineLabel(g)}`);

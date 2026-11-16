@@ -21,11 +21,13 @@ import {
   fmt, el, pad2, isoDate, parseISODate, shiftISODate, parseTime24, dateField,
   bindIsoInputs, confirmModal, formModal, customModal, weekdayNameForISODate,
 } from "./util.js";
+import { sodiumMgFromSaltG, saltGFromSodiumMg } from "./eu-salt.js";
 import { api, loadAuth, saveAuth, toast } from "./api.js";
 import { esc } from "./strings.js";
 import {
   itemHasParts,
   setsInSlot,
+  setNameSuggestions,
   pruneBlankSetParts,
   setPartStats,
   recomputeSetGrams,
@@ -33,9 +35,15 @@ import {
   ejectPartFromSet,
   cloneDraftItem,
 } from "./meal-items.js";
-import { bestFoodMatch, foodByAlias, foodMatchCandidates, catalogFoodSuggestions, foodPickCandidates } from "./fuzzy.js";
+import {
+  bestFoodMatch, bestFoodByAlias, foodByAlias, foodMatchCandidates,
+  mealLineFoodSuggestions, foodPickCandidates,
+} from "./fuzzy.js";
 import { matchStockLotByName } from "./stock-match.js";
 import { DEFAULT_KCAL_BUDGET, mergedKcalBudget, dayKcalBarParts } from "./kcal-budget.js";
+import { dataBackupBarHtml, bindDataBackupHandlers } from "./data-backup.js";
+import { weightChartSectionHtml, mountWeightChart } from "./weight-chart.js";
+import { daysKcalChartSectionHtml, mountDaysKcalChart } from "./days-kcal-chart.js";
 
 function defaultSetName(slot) {
   const s = (slot || "").trim().toLowerCase();
@@ -146,15 +154,58 @@ function computedDayTotalsFromDraft() {
   return dayTotalsView();
 }
 
-function legacyDotTooltip(d, field) {
-  const leg = d?.legacy_totals;
-  if (!leg) return "";
-  if (field === "sodium") {
-    const v = Number(leg.sodium_mg) || 0;
-    return v > 0 ? `Legacy: ${fmt(v, 0)}mg` : "";
+/** Sum legacy margin totals from meal slots that still have markdown raw (partial day). */
+function slotLegacyTotalsAggregated() {
+  let kcal = 0;
+  let sodium_mg = 0;
+  let slotsWithLegacy = 0;
+  for (const slot of SLOTS) {
+    const leg = parseSlotLegacyFromRaw(mealSlotRaw(slot));
+    if (leg.kcal <= 0 && leg.sodium_mg <= 0) continue;
+    kcal += leg.kcal;
+    sodium_mg += leg.sodium_mg;
+    slotsWithLegacy += 1;
   }
-  const v = Number(leg.kcal) || 0;
-  return v > 0 ? `Legacy: ${fmt(v, 0)}kcal` : "";
+  return { kcal, sodium_mg, slotsWithLegacy };
+}
+
+function catalogTotalsForSlotsWithLegacy() {
+  const day = nutritionDay();
+  let kcal = 0;
+  let sodium_mg = 0;
+  for (const slot of SLOTS) {
+    const leg = parseSlotLegacyFromRaw(mealSlotRaw(slot));
+    if (leg.kcal <= 0 && leg.sodium_mg <= 0) continue;
+    const m = day?.meals?.[slot];
+    kcal += Number(m?.kcal) || 0;
+    sodium_mg += Number(m?.sodium_mg) || 0;
+  }
+  return { kcal, sodium_mg };
+}
+
+function dayLegacyComparePair(field) {
+  const isNa = field === "sodium";
+  const agg = slotLegacyTotalsAggregated();
+  if (agg.slotsWithLegacy > 0) {
+    const cur = catalogTotalsForSlotsWithLegacy();
+    return {
+      partial: true,
+      leg: isNa ? agg.sodium_mg : agg.kcal,
+      cur: isNa ? cur.sodium_mg : cur.kcal,
+    };
+  }
+  const leg = legacyDayForDiff()?.legacy_totals;
+  const legVal = isNa ? Number(leg?.sodium_mg) : Number(leg?.kcal);
+  const totals = dayTotalsView();
+  const curVal = isNa ? Number(totals.sodium_mg) : Number(totals.kcal);
+  return { partial: false, leg: legVal, cur: curVal };
+}
+
+function legacyDotTooltip(_d, field) {
+  const { leg } = dayLegacyComparePair(field);
+  const v = Number(leg) || 0;
+  if (v <= 0) return "";
+  return field === "sodium" ? `Legacy: ${fmt(v, 0)}mg` : `Legacy: ${fmt(v, 0)}kcal`;
 }
 
 function legacyDiffDotMarkup(tip, band) {
@@ -167,25 +218,24 @@ function legacyDiffDotMarkup(tip, band) {
   </span>`;
 }
 
-function legacyDiffBandForField(d, field) {
-  const disp = dayDisplay(d);
-  const isNa = field === "sodium";
-  let band = isNa ? disp.sodium_diff_band : disp.kcal_diff_band;
-  if (band && band !== "muted") return band;
-  const leg = d?.legacy_totals;
-  const legVal = isNa ? Number(leg?.sodium_mg) : Number(leg?.kcal);
-  if (!leg || legVal <= 0) return "muted";
-  const totals = d?.totals || dayTotalsView();
-  const cur = isNa ? Number(totals.sodium_mg) : Number(totals.kcal);
-  return legacyDiffBandClass(cur - legVal, state.kcalBudget).replace("meal-band--", "");
+function legacyDiffBandForField(_d, field) {
+  const { leg, cur, partial } = dayLegacyComparePair(field);
+  const legVal = Number(leg) || 0;
+  if (legVal <= 0) return "muted";
+  if (!partial) {
+    const disp = dayDisplay(_d);
+    const isNa = field === "sodium";
+    const serverBand = isNa ? disp.sodium_diff_band : disp.kcal_diff_band;
+    if (serverBand && serverBand !== "muted") return serverBand;
+  }
+  return legacyDiffBandClass(Number(cur) - legVal, state.kcalBudget).replace("meal-band--", "");
 }
 
 /** Dot after kcal or mg — color and hover for that nutrient only (day legacy column). */
 function legacyDiffDot(d, field) {
-  const leg = d?.legacy_totals;
-  const isNa = field === "sodium";
-  const legVal = isNa ? Number(leg?.sodium_mg) : Number(leg?.kcal);
-  if (!leg || legVal <= 0) return "";
+  const { leg } = dayLegacyComparePair(field);
+  const legVal = Number(leg) || 0;
+  if (legVal <= 0) return "";
   const tip = legacyDotTooltip(d, field);
   if (!tip) return "";
   const band = legacyDiffBandForField(d, field);
@@ -319,6 +369,7 @@ function daySummaryPanel() {
 function todayView() {
   const d = state.mealDraft;
   const box = el(`<div>
+    ${dataBackupBarHtml("days")}
     ${daySummaryPanel()}
     <div class="grid">
       ${SLOTS.map((slot) => slotCard(slot, d[slot])).join("")}
@@ -353,7 +404,7 @@ function foodForItem(it) {
     const byID = state.foods.find((f) => f.id === it.food_id);
     if (byID) return byID;
   }
-  const byAlias = foodByAlias(state.foodAliases, state.foods, it?.name);
+  const byAlias = bestFoodByAlias(state.foodAliases, state.foods, it?.name);
   if (byAlias) return byAlias;
   const fuzzy = bestFoodMatch(state.foods, it?.name);
   if (fuzzy) return fuzzy;
@@ -371,6 +422,13 @@ function knownFood(name) {
   return foodForItem({ name });
 }
 
+function serializeItemFoodID(it) {
+  const id = (it?.food_id || "").trim();
+  if (id && state.foods.some((f) => f.id === id)) return id;
+  const linked = foodForItem(it);
+  return linked?.id || id || undefined;
+}
+
 function stockLotForItem(it) {
   if (!it) return null;
   const lots = state.stock || [];
@@ -384,7 +442,11 @@ function stockLotForItem(it) {
 function linkDraftItemFood(it) {
   if (!it || itemHasParts(it)) return;
   if (it.food_id && state.foods.some((f) => f.id === it.food_id)) return;
-  if (foodByAlias(state.foodAliases, state.foods, it.name)) return;
+  const aliasFood = bestFoodByAlias(state.foodAliases, state.foods, it.name);
+  if (aliasFood) {
+    it.food_id = aliasFood.id;
+    return;
+  }
   const strict = foodMatchCandidates(state.foods, it.name);
   if (strict.length >= 2) return;
   if (strict.length === 1) {
@@ -398,7 +460,7 @@ function linkDraftItemFood(it) {
 
 function foodItemLinked(it) {
   if (it?.food_id && state.foods.some((f) => f.id === it.food_id)) return true;
-  return !!foodByAlias(state.foodAliases, state.foods, it?.name);
+  return !!bestFoodByAlias(state.foodAliases, state.foods, it?.name);
 }
 
 function showFoodPickUi(it) {
@@ -414,9 +476,11 @@ function foodPickOptions(it) {
   const name = (it?.name || "").trim();
   if (!name || itemHasParts(it)) return [];
   if (foodItemLinked(it)) return [];
-  let opts = foodPickCandidates(state.foods, name);
-  if (!opts.length) opts = catalogFoodSuggestions(state.foods, name, 15);
-  return opts;
+  const strict = foodPickCandidates(state.foods, name);
+  if (strict.length) {
+    return strict.map((f) => ({ f, label: (f.name || "").trim() }));
+  }
+  return mealLineFoodSuggestions(state.foods, state.foodAliases, name, 15);
 }
 
 function foodPickOpen(slot, i, partIdx) {
@@ -430,15 +494,17 @@ function foodPickList(slot, i, partIdx, it, options) {
   if (!open) return "";
   let opts = options;
   if (!opts.length) {
-    opts = foodPickCandidates(state.foods, (it?.name || "").trim());
-    if (!opts.length) opts = catalogFoodSuggestions(state.foods, (it?.name || "").trim(), 15);
+    const strict = foodPickCandidates(state.foods, (it?.name || "").trim());
+    opts = strict.length
+      ? strict.map((f) => ({ f, label: (f.name || "").trim() }))
+      : mealLineFoodSuggestions(state.foods, state.foodAliases, (it?.name || "").trim(), 15);
   }
   if (!opts.length) {
     return `<div class="food-pick-list food-pick-list-empty muted" role="status">No catalog matches. Add the food under Foods, or set per 100 g in the kcal / Na columns.</div>`;
   }
-  return `<div class="food-pick-list" role="listbox">${opts.map((f) =>
+  return `<div class="food-pick-list" role="listbox">${opts.map(({ f, label }) =>
     `<button type="button" data-resolve-food="${esc(f.id)}:${esc(slot)}:${i}${partIdx == null ? "" : `:${partIdx}`}" title="Save alias for this line name">
-      ${esc(f.name)} <span class="muted">${fmt(f.kcal_per_100g, 0)} kcal/100g</span>
+      ${esc(label)} <span class="muted">${fmt(f.kcal_per_100g, 0)} kcal/100g</span>
     </button>`
   ).join("")}</div>`;
 }
@@ -510,16 +576,128 @@ function slotCard(slot, draft) {
   </section>`;
 }
 
-function suggestList(slot, i, partIdx, q) {
+function clearNameSuggest() {
+  state.foodPick = null;
+  state.suggest = { slot: "", i: -1, p: -1, q: "" };
+}
+
+function captureFieldFocus(root) {
+  const el = document.activeElement;
+  if (!el?.matches?.("[data-field], #day-bp, #day-walking")) return null;
+  if (root && !root.contains(el)) return null;
+  return {
+    slot: el.dataset.slot,
+    idx: el.dataset.idx,
+    part: el.dataset.part ?? null,
+    field: el.dataset.field,
+    id: el.id || "",
+    start: el.selectionStart,
+    end: el.selectionEnd,
+  };
+}
+
+function restoreFieldFocus(cap, root = document) {
+  if (!cap) return;
+  let el;
+  if (cap.id) {
+    el = document.getElementById(cap.id) || root.querySelector(`#${cap.id}`);
+  }
+  if (!el && cap.field) {
+    const partSel = cap.part == null ? ":not([data-part])" : `[data-part="${cap.part}"]`;
+    const sel = `[data-field="${cap.field}"][data-slot="${cap.slot}"][data-idx="${cap.idx}"]${partSel}`;
+    el = root.querySelector(sel);
+  }
+  if (!el) return;
+  el.focus();
+  if (typeof cap.start === "number" && typeof cap.end === "number" && el.setSelectionRange) {
+    const len = (el.value || "").length;
+    const s = Math.min(cap.start, len);
+    const e = Math.min(cap.end, len);
+    try {
+      el.setSelectionRange(s, e);
+    } catch {
+      el.setSelectionRange(len, len);
+    }
+  }
+}
+
+/** Full rerender without kicking the user out of meal/draft inputs. */
+export function renderPreservingFocus() {
+  const overlay = document.querySelector(".stock-batch-modal");
+  const cap = captureFieldFocus(overlay || undefined);
+  if (overlay) {
+    refreshStockModalIfOpen();
+    restoreFieldFocus(cap, overlay);
+    return;
+  }
+  render();
+  restoreFieldFocus(cap);
+}
+
+let mealFieldRenderTimer = null;
+function scheduleMealFieldRender() {
+  clearTimeout(mealFieldRenderTimer);
+  mealFieldRenderTimer = setTimeout(() => renderPreservingFocus(), 80);
+}
+
+let stockModalInputTimer = null;
+function scheduleStockModalFieldRefresh(overlay) {
+  clearTimeout(stockModalInputTimer);
+  stockModalInputTimer = setTimeout(() => {
+    const cap = captureFieldFocus(overlay);
+    refreshStockModalBody(overlay);
+    restoreFieldFocus(cap, overlay);
+  }, 80);
+}
+
+let nameSuggestDismissBound = false;
+function refreshAfterNameSuggestDismiss() {
+  if (document.querySelector(".stock-batch-modal")) refreshStockModalIfOpen();
+  else renderPreservingFocus();
+}
+
+function ensureNameSuggestDismiss() {
+  if (nameSuggestDismissBound) return;
+  nameSuggestDismissBound = true;
+  document.addEventListener("mousedown", (e) => {
+    if (e.target.closest?.(".suggest") || e.target.closest?.(".food-pick-list")) return;
+    const hasSuggest = Boolean(state.suggest?.slot);
+    if (!state.foodPick && !hasSuggest) return;
+    clearNameSuggest();
+    refreshAfterNameSuggestDismiss();
+  });
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "Escape") return;
+      const hasSuggest = Boolean(state.suggest?.slot);
+      if (!state.foodPick && !hasSuggest) return;
+      e.preventDefault();
+      e.stopPropagation();
+      clearNameSuggest();
+      refreshAfterNameSuggestDismiss();
+    },
+    true,
+  );
+}
+
+function suggestList(slot, i, partIdx, q, { isSetHeader = false } = {}) {
   const open = state.suggest.slot === slot && state.suggest.i === i
     && (state.suggest.p ?? -1) === (partIdx == null ? -1 : partIdx);
   const query = (q || "").trim();
   if (!open || query.length < 1) return "";
-  const hits = catalogFoodSuggestions(state.foods, query, 10);
+  if (isSetHeader) {
+    const names = setNameSuggestions(slot, i, query, 10);
+    if (!names.length) return "";
+    return `<div class="suggest-list" role="listbox">${names.map((name) =>
+      `<button type="button" data-pick-set-name="${esc(name)}" data-slot="${esc(slot)}" data-idx="${i}">${esc(name)}</button>`
+    ).join("")}</div>`;
+  }
+  const hits = mealLineFoodSuggestions(state.foods, state.foodAliases, query, 10);
   if (!hits.length) return "";
   const partAttr = partIdx == null ? "" : ` data-part="${partIdx}"`;
-  return `<div class="suggest-list">${hits.map((f) =>
-    `<button type="button" data-pick-food="${esc(f.id)}" data-slot="${esc(slot)}" data-idx="${i}"${partAttr}>${esc(f.name)} <span class="muted">${fmt(f.kcal_per_100g, 0)} kcal/100g</span></button>`
+  return `<div class="suggest-list" role="listbox">${hits.map(({ f, label }) =>
+    `<button type="button" data-pick-food="${esc(f.id)}" data-pick-label="${esc(label)}" data-slot="${esc(slot)}" data-idx="${i}"${partAttr}>${esc(label)} <span class="muted">${fmt(f.kcal_per_100g, 0)} kcal/100g</span></button>`
   ).join("")}</div>`;
 }
 
@@ -558,11 +736,27 @@ function needsPer100gRow(it) {
 }
 
 /** Highlight from server gap list (POST /nutrition/compute/day). */
+function ingredientMissingGrams(it) {
+  if (!(it?.name || "").trim()) return false;
+  if (itemHasParts(it)) return false;
+  const g = numOrUndef(it.grams);
+  const c = numOrUndef(it.count);
+  return !(g != null && g > 0) && !(c != null && c > 0);
+}
+
 function itemNutritionIssue(slot, idx, partIdx) {
   const gap = itemGapFor(slot, idx, partIdx);
-  if (!gap) return null;
-  const msg = (gap.note || "").trim() || "Missing catalog data to compute this line";
-  return { msg };
+  if (gap) {
+    const msg = (gap.note || "").trim() || "Missing catalog data to compute this line";
+    return { msg };
+  }
+  const it = partIdx == null
+    ? state.mealDraft?.[slot]?.items?.[idx]
+    : state.mealDraft?.[slot]?.items?.[idx]?.parts?.[partIdx];
+  if (partIdx != null && ingredientMissingGrams(it)) {
+    return { msg: "Enter grams (or × count) for this ingredient" };
+  }
+  return null;
 }
 
 function draftNutritionGaps() {
@@ -637,7 +831,8 @@ function nameGramsRow(slot, i, it, partIdx) {
   const partAttr = isPart ? ` data-part="${partIdx}"` : "";
   const isSetHeader = !isPart && itemHasParts(it);
   const computedSet = isSetHeader ? computedMealItem(slot, i, null) : null;
-  const setPartCount = (it.parts || []).filter((p) => (p.name || "").trim() || Number(p.grams) > 0).length;
+  const setPartComplete = (p) => (p?.name || "").trim() && (Number(p.grams) > 0 || Number(p.count) > 0);
+  const setPartCount = (it.parts || []).filter(setPartComplete).length;
   const gramsPh = isPart ? "g" : "g";
   const namePh = isPart ? "Ingredient" : (isSetHeader ? (slot === "stock" ? "Batch name" : "Set name") : "Food");
   const countCell = isSetHeader
@@ -674,7 +869,7 @@ function nameGramsRow(slot, i, it, partIdx) {
   const nameInput = `<div class="suggest name-field">
         <span class="name-input-row">${stockHint}${pickBtn}<input data-field="name" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.name)}" placeholder="${namePh}" autocomplete="off"${nameTitle ? ` title="${esc(nameTitle)}"` : ""}></span>
         ${foodPickList(slot, i, partIdx, it, pickOpts)}
-        ${suggestList(slot, i, partIdx, it.name)}
+        ${suggestList(slot, i, partIdx, it.name, { isSetHeader })}
       </div>`;
   const kcalCell = needPer100g
     ? `<input class="cell-grams cell-per100g" data-field="kcal_per_100g" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.kcal_per_100g)}" placeholder="kcal/100g" inputmode="decimal" title="kcal per 100 g (not in catalog)">`
@@ -769,7 +964,11 @@ function mealLine(slot, d) {
 }
 
 function dayStatusForList(d) {
-  return dayCardStatus(d, { gapItems: state.dayGapItems, weights: state.weights });
+  return dayCardStatus(d, {
+    gapItems: state.dayGapItems,
+    gapIndex: state.dayGapsByDate,
+    weights: state.weights,
+  });
 }
 
 function dayMatchesStatusFilter(d) {
@@ -795,6 +994,9 @@ function daysStatusFilterBar() {
 }
 
 function daysView() {
+  if (state.tabLoading && !(state.days || []).length) {
+    return el(`<div class="days-loading muted" role="status">Loading days…</div>`);
+  }
   const visibleDays = (state.days || []).filter(dayMatchesStatusFilter);
   const cards = visibleDays.map((d) => {
     const meals = ["lunch", "dinner", "snack"].map((s) => mealLine(s, d)).join("");
@@ -813,7 +1015,9 @@ function daysView() {
       <span class="day-card-dot-wrap">${dayCardListDotMarkup(st)}</span>
     </article>`;
   }).join("");
-  return el(`<div>
+  const root = el(`<div>
+    ${dataBackupBarHtml("days")}
+    ${daysKcalChartSectionHtml()}
     <div class="row searchbar">
       <label class="field grow"><span>Search meals</span><input id="days-q" value="${esc(state.daysQ)}" placeholder="moussaka, pasta..."></label>
       <button class="btn primary" id="days-go">Search</button>
@@ -826,6 +1030,12 @@ function daysView() {
       }</p>`
     }</div>
   </div>`);
+  mountDaysKcalChart(
+    root.querySelector("[data-days-kcal-chart]"),
+    visibleDays,
+    state.kcalBudget,
+  );
+  return root;
 }
 
 function stockLotActive(lot) {
@@ -953,16 +1163,6 @@ function refreshStockModalBody(overlay) {
   bindStockModal(overlay);
 }
 
-function focusNameInputIn(root, slot, idx, part) {
-  const sel = `[data-field="name"][data-slot="${slot}"][data-idx="${idx}"]${part == null ? ":not([data-part])" : `[data-part="${part}"]`}`;
-  const again = root.querySelector(sel);
-  if (again) {
-    again.focus();
-    const v = again.value;
-    again.setSelectionRange(v.length, v.length);
-  }
-}
-
 function bindStockModal(overlay) {
   bindIsoInputs(overlay);
   const refresh = () => refreshStockModalBody(overlay);
@@ -986,8 +1186,9 @@ function bindStockModal(overlay) {
         };
         linkDraftItemStock(target);
         linkDraftItemFood(target);
-        refresh();
-        focusNameInputIn(overlay, inp.dataset.slot, inp.dataset.idx, inp.dataset.part == null ? null : Number(inp.dataset.part));
+        scheduleStockModalFieldRefresh(overlay);
+      } else if (inp.dataset.field === "grams" || inp.dataset.field === "count") {
+        scheduleStockModalFieldRefresh(overlay);
       }
     });
   });
@@ -1015,12 +1216,20 @@ function bindStockModal(overlay) {
       const food = state.foods.find((f) => f.id === b.dataset.pickFood);
       const target = draftTarget(b.dataset.slot, b.dataset.idx, b.dataset.part);
       if (food && target) {
-        target.name = food.name;
+        target.name = (b.dataset.pickLabel || "").trim() || food.name;
         target.food_id = food.id;
         target.kcal_per_100g = "";
         target.sodium_mg_per_100g = "";
       }
-      state.suggest = { slot: "", i: -1, p: -1, q: "" };
+      clearNameSuggest();
+      refresh();
+    });
+  });
+  overlay.querySelectorAll("[data-pick-set-name]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const target = state.mealDraft[b.dataset.slot]?.items[Number(b.dataset.idx)];
+      if (target) target.name = b.dataset.pickSetName;
+      clearNameSuggest();
       refresh();
     });
   });
@@ -1173,6 +1382,7 @@ function stockView() {
   const activeRows = activeLots.map(lotCard).join("");
   const usedRows = usedLots.map(lotCard).join("");
   return el(`<div>
+    ${dataBackupBarHtml("stock")}
     <div class="panel-toolbar row">
       <button type="button" class="btn primary" id="stock-add">New batch</button>
     </div>
@@ -1197,7 +1407,7 @@ function foodEnergyEU(f) {
 
 function foodSaltG(f) {
   if (f.salt_g_per_100g != null && !Number.isNaN(Number(f.salt_g_per_100g))) return Number(f.salt_g_per_100g);
-  if (f.sodium_mg_per_100g != null) return Number(f.sodium_mg_per_100g) / 400;
+  if (f.sodium_mg_per_100g != null) return saltGFromSodiumMg(Number(f.sodium_mg_per_100g));
   return null;
 }
 
@@ -1236,6 +1446,87 @@ function foodEuLabelHtml(f, { compact = false } = {}) {
   </div>`;
 }
 
+function foodAliasesForId(foodId) {
+  if (!foodId) return [];
+  return (state.foodAliases || [])
+    .filter((a) => a.food_id === foodId)
+    .map((a) => a.alias)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+function foodAliasChipsHtml(aliases) {
+  if (!aliases?.length) {
+    return `<p class="muted food-alias-empty" style="margin:0;font-size:0.85rem">No aliases yet — meal lines use exact catalog name or fuzzy match.</p>`;
+  }
+  return `<div class="food-alias-chips" role="list">${aliases.map((alias) =>
+    `<span class="food-alias-chip" role="listitem">
+      <span class="mono">${esc(alias)}</span>
+      <button type="button" class="food-alias-chip-remove" data-food-alias-remove="${esc(alias)}" title="Remove alias" aria-label="Remove alias ${esc(alias)}">×</button>
+    </span>`
+  ).join("")}</div>`;
+}
+
+function foodFormAliasesSectionHtml(foodId) {
+  if (!foodId) return "";
+  return `<section class="food-alias-section" data-food-alias-section="${esc(foodId)}">
+    <p class="muted form-modal-hint" style="margin:0 0 0.45rem">Aliases — other names that should match this catalog food in meals and import.</p>
+    <div class="food-alias-list">${foodAliasChipsHtml(foodAliasesForId(foodId))}</div>
+    <label class="field" style="margin-top:0.55rem"><span>Add aliases (one per line)</span>
+      <textarea data-food-alias-bulk rows="3" placeholder="peppers&#10;grilled peppers&#10;florina pepper"></textarea>
+    </label>
+    <button type="button" class="btn" data-food-alias-bulk-add style="margin-top:0.35rem">Add</button>
+  </section>`;
+}
+
+function mountFoodFormAliases(overlay, foodId) {
+  const section = overlay.querySelector("[data-food-alias-section]");
+  if (!section || !foodId) return;
+
+  const refresh = () => {
+    const list = section.querySelector(".food-alias-list");
+    if (list) list.innerHTML = foodAliasChipsHtml(foodAliasesForId(foodId));
+    list?.querySelectorAll("[data-food-alias-remove]").forEach((btn) => {
+      btn.addEventListener("click", () => removeFoodAlias(foodId, btn.dataset.foodAliasRemove, refresh));
+    });
+  };
+
+  const addNames = async (names) => {
+    const uniq = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+    if (!uniq.length) return;
+    try {
+      for (const alias of uniq) {
+        await api(`/foods/${foodId}/aliases`, { method: "POST", body: JSON.stringify({ alias }) });
+      }
+      await loadFoods();
+      refresh();
+      render();
+      toast(uniq.length > 1 ? `Added ${uniq.length} aliases` : "Alias added");
+    } catch (e) {
+      toast(e.message || "alias failed");
+    }
+  };
+
+  section.querySelector("[data-food-alias-bulk-add]")?.addEventListener("click", () => {
+    const box = section.querySelector("[data-food-alias-bulk]");
+    const lines = (box?.value || "").split(/\n+/);
+    addNames(lines).then(() => { if (box) box.value = ""; });
+  });
+
+  refresh();
+}
+
+async function removeFoodAlias(foodId, alias, refresh) {
+  try {
+    await api(`/foods/${foodId}/aliases`, { method: "DELETE", body: JSON.stringify({ alias }) });
+    await loadFoods();
+    refresh?.();
+    render();
+    toast("Alias removed");
+  } catch (e) {
+    toast(e.message || "alias failed");
+  }
+}
+
 function foodFormFieldsHtml(f) {
   const salt = foodSaltG(f);
   return `<label class="field grow"><span>Name</span><input data-ff="name" value="${esc(f?.name || "")}"></label>
@@ -1254,9 +1545,11 @@ function foodFormFieldsHtml(f) {
     </div>
     <div class="form-modal-row row">
       <label class="field tight"><span>Protein g</span><input data-ff="protein" value="${esc(f?.protein_g_per_100g ?? "")}" inputmode="decimal"></label>
-      <label class="field tight"><span>Salt g</span><input data-ff="salt" value="${esc(salt ?? "")}" inputmode="decimal"></label>
+      <label class="field tight"><span>Salt g</span><input data-ff="salt" value="${esc(salt ?? "")}" inputmode="decimal" title="EU label salt (NaCl g per 100 g)"></label>
+      <p class="muted form-modal-hint" style="margin:0;grid-column:1/-1">Salt on EU labels is NaCl (g/100g). Meal sodium uses 393 mg Na per 1 g salt (not mg×1000). Greek chicken souvlaki skewers are typically ~1.2–1.3 g salt/100g (~470–510 mg Na).</p>
     </div>
-    <label class="field"><span>Notes</span><textarea data-ff="notes" rows="2">${esc(f?.notes || "")}</textarea></label>`;
+    <label class="field"><span>Notes</span><textarea data-ff="notes" rows="2">${esc(f?.notes || "")}</textarea></label>
+    ${foodFormAliasesSectionHtml(f?.id)}`;
 }
 
 function readFoodForm(overlay) {
@@ -1275,7 +1568,7 @@ function readFoodForm(overlay) {
     sugars_g_per_100g: numOrUndef(val("sugars")),
     protein_g_per_100g: numOrUndef(val("protein")),
     salt_g_per_100g: salt,
-    sodium_mg_per_100g: salt != null ? salt * 400 : undefined,
+    sodium_mg_per_100g: salt != null ? sodiumMgFromSaltG(salt) : undefined,
     notes: val("notes").trim(),
   };
 }
@@ -1283,18 +1576,29 @@ function readFoodForm(overlay) {
 function foodsView() {
   const q = (state.foodsQ || "").toLowerCase();
   const list = q
-    ? state.foods.filter((f) => f.name.toLowerCase().includes(q) || (f.id || "").includes(q))
+    ? state.foods.filter((f) => {
+        if (f.name.toLowerCase().includes(q) || (f.id || "").includes(q)) return true;
+        return foodAliasesForId(f.id).some((a) => a.toLowerCase().includes(q));
+      })
     : state.foods;
-  const cards = list.slice(0, 200).map((f) => `<article class="food-catalog-card clickable" data-open-food="${esc(f.id)}">
+  const cards = list.slice(0, 200).map((f) => {
+    const aliases = foodAliasesForId(f.id);
+    const aliasHint = aliases.length
+      ? `<p class="food-catalog-aliases muted" title="Meal-line aliases">${aliases.map((a) => esc(a)).join(" · ")}</p>`
+      : "";
+    return `<article class="food-catalog-card clickable" data-open-food="${esc(f.id)}">
     <div class="food-catalog-layout">
       <div class="food-catalog-main">
         <h3 class="food-catalog-name">${esc(foodCatalogDisplayName(f.name))}</h3>
+        ${aliasHint}
         ${f.notes ? `<p class="food-catalog-notes muted">${esc(f.notes)}</p>` : ""}
       </div>
       <div class="food-catalog-label-wrap">${foodEuLabelHtml(f, { compact: true })}</div>
     </div>
-  </article>`).join("");
+  </article>`;
+  }).join("");
   return el(`<div>
+    ${dataBackupBarHtml("foods")}
     <div class="panel-toolbar row searchbar">
       <label class="field grow"><span>Search catalog</span><input id="foods-q" value="${esc(state.foodsQ || "")}" placeholder="pasta, chicken..."></label>
       <button type="button" class="btn primary" id="foods-add">Add food</button>
@@ -1313,8 +1617,10 @@ function weightView() {
     <td>${w.protocol ? "yes" : ""}</td>
     <td>${esc(w.note || "")}</td>
   </tr>`).join("");
-  return el(`<div>
-    <div class="panel-toolbar row">
+  const root = el(`<div>
+    ${dataBackupBarHtml("weight")}
+  ${weightChartSectionHtml()}
+    <div class="panel-toolbar row" style="margin-top:0.65rem">
       <p class="muted" style="margin:0;flex:1 1 auto">Latest: ${latest ? `${fmt(latest.kg, 1)} kg on ${esc(latest.date)}` : "none"}</p>
       <button type="button" class="btn primary" id="weight-add">Add weigh-in</button>
     </div>
@@ -1325,6 +1631,8 @@ function weightView() {
       </table>
     </div>
   </div>`);
+  mountWeightChart(root.querySelector("[data-weight-chart]"), state.weights);
+  return root;
 }
 
 function settingsView() {
@@ -1391,6 +1699,15 @@ function settingsView() {
       </div>
     </section>
     <section class="card" style="margin-top:0.85rem">
+      <h2>Backup & restore</h2>
+      <p class="muted form-modal-hint" style="margin:0">Full JSON export (foods, aliases, days, stock, weight, settings). Import here replaces everything; use tab-specific import on Foods/Days/etc. to merge only that section.</p>
+      ${dataBackupBarHtml("all", { fullBackup: true })}
+      <label class="check" style="margin-top:0.45rem;display:block">
+        <input type="checkbox" id="import-all-replace">
+        Full import replaces all data (dangerous)
+      </label>
+    </section>
+    <section class="card" style="margin-top:0.85rem">
       <h2>Fix imported days</h2>
       <p class="muted form-modal-hint" style="margin:0">Re-parse every saved meal line (strips day-totals glued to snacks, × counts, catalog math). Restores markdown legacy totals from <span class="mono">mddata/</span>.</p>
       <button type="button" class="btn primary" id="settings-repair-days" style="margin-top:0.75rem">Repair all days from raw</button>
@@ -1430,7 +1747,29 @@ async function saveKcalBudgetFromForm() {
   render();
 }
 
+async function reloadAfterDataImport(scope) {
+  const jobs = [];
+  if (scope === "foods" || scope === "all") jobs.push(loadFoods());
+  if (scope === "stock" || scope === "all") jobs.push(loadStock());
+  if (scope === "weight" || scope === "all") jobs.push(loadWeights());
+  if (scope === "all") {
+    jobs.push(
+      api("/settings").then((data) => {
+        state.kcalBudget = mergedKcalBudget(data.settings);
+      }),
+    );
+  }
+  await Promise.all(jobs);
+  if (scope === "days" || scope === "all") {
+    if (state.tab === "days") await loadDays();
+    if (state.tab === "today" && state.date) await loadDay();
+  }
+  render();
+}
+
 function bind() {
+  ensureNameSuggestDismiss();
+  bindDataBackupHandlers({ onImported: reloadAfterDataImport });
   const app = document.getElementById("app");
   document.getElementById("theme-pick")?.addEventListener("change", (e) => {
     saveTheme(e.target.value);
@@ -1504,20 +1843,12 @@ function bind() {
           p: inp.dataset.part == null ? -1 : Number(inp.dataset.part),
           q: inp.value,
         };
-        const target2 = draftTarget(inp.dataset.slot, inp.dataset.idx, inp.dataset.part);
-        if (target2) {
-          linkDraftItemStock(target2);
-          linkDraftItemFood(target2);
-        }
-        render();
-        const again = document.querySelector(
-          `[data-field="name"][data-slot="${inp.dataset.slot}"][data-idx="${inp.dataset.idx}"]${inp.dataset.part == null ? ":not([data-part])" : `[data-part="${inp.dataset.part}"]`}`
-        );
-        if (again) {
-          again.focus();
-          const v = again.value;
-          again.setSelectionRange(v.length, v.length);
-        }
+        linkDraftItemStock(target);
+        linkDraftItemFood(target);
+        scheduleMealFieldRender();
+      } else if (inp.dataset.field === "count") {
+        linkDraftItemStock(target);
+        linkDraftItemFood(target);
       }
     });
   });
@@ -1545,13 +1876,22 @@ function bind() {
       const food = state.foods.find((f) => f.id === b.dataset.pickFood);
       const target = draftTarget(b.dataset.slot, b.dataset.idx, b.dataset.part);
       if (food && target) {
-        target.name = food.name;
+        target.name = (b.dataset.pickLabel || "").trim() || food.name;
         target.food_id = food.id;
         target.kcal_per_100g = "";
         target.sodium_mg_per_100g = "";
         scheduleSaveDay();
       }
-      state.suggest = { slot: "", i: -1, p: -1, q: "" };
+      clearNameSuggest();
+      render();
+    });
+  });
+  app?.querySelectorAll("[data-pick-set-name]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const target = state.mealDraft[b.dataset.slot]?.items[Number(b.dataset.idx)];
+      if (target) target.name = b.dataset.pickSetName;
+      clearNameSuggest();
+      scheduleSaveDay();
       render();
     });
   });
@@ -1758,18 +2098,21 @@ function draftTarget(slot, idx, part) {
   return item.parts[Number(part)] || null;
 }
 
-function serializeItem(it) {
+function serializeItem(it, { inSet = false } = {}) {
   const name = (it.name || "").trim();
-  const parts = (it.parts || []).map(serializeItem).filter(Boolean);
+  const parts = (it.parts || []).map((p) => serializeItem(p, { inSet: true })).filter(Boolean);
   if (!name && !parts.length) return null;
-  const food = knownFood(name);
+  const linkedFood = serializeItemFoodID(it);
+  const hasStock = !!(it.stock_lot_id || stockLotForItem(it)?.id);
+  if (inSet && name && !parts.length && ingredientMissingGrams(it) && !linkedFood && !hasStock) {
+    return null;
+  }
   const row = { name: name || "Dish" };
   const cnt = numOrUndef(it.count);
   if (cnt != null && cnt > 0) row.count = cnt;
   const gExplicit = numOrUndef(it.grams);
   row.grams = gExplicit != null && gExplicit > 0 ? gExplicit : 0;
-  if (food) row.food_id = food.id || it.food_id;
-  else if (it.food_id) row.food_id = it.food_id;
+  if (linkedFood) row.food_id = linkedFood;
   const lot = stockLotForItem(it);
   if (lot?.id) row.stock_lot_id = lot.id;
   else if (it.stock_lot_id) row.stock_lot_id = it.stock_lot_id;
@@ -1795,7 +2138,7 @@ let saveDayQueued = false;
 
 function scheduleSaveDay() {
   if (state.tab !== "today" || !state.user || !state.token) return;
-  scheduleDayNutritionCompute(draftItems, state.mealDraft, () => render());
+  scheduleDayNutritionCompute(draftItems, state.mealDraft, () => renderPreservingFocus());
   clearTimeout(saveDayTimer);
   saveDayTimer = setTimeout(() => saveDay({ silent: true }), 650);
 }
@@ -1836,8 +2179,8 @@ async function saveDay(opts = {}) {
     };
     const out = await api("/log", { method: "POST", body: JSON.stringify(body) });
     state.day = out.day || null;
-    state.computedDay = state.day;
     if (!silent) fillDraftFromDay(state.day);
+    await refreshDayNutrition(draftItems, state.mealDraft);
     if (out.foods_ensured?.length || out.foods_created?.length) await loadFoods();
     if (out.reply) {
       window.alert(out.reply);
@@ -1891,6 +2234,7 @@ async function openFoodForm(id) {
     submitLabel: editing ? "Save" : "Add",
     extraClass: "entity-form-modal food-entity-modal",
     onMount: (overlay) => {
+      if (editing) mountFoodFormAliases(overlay, f.id);
       if (editing) {
         const actions = overlay.querySelector(".modal-action");
         if (actions && !actions.querySelector("[data-ff-delete]")) {
@@ -2325,42 +2669,76 @@ async function adjustStock(id, mode) {
   render();
 }
 
-async function loadDays() {
-  const q = state.daysQ ? `&q=${encodeURIComponent(state.daysQ)}` : "";
-  const data = await api(`/days?limit=200${q}`);
-  state.days = data.days || [];
-  if (!state.weights?.length) {
-    try {
-      await loadWeights();
-    } catch {
-      /* weigh-ins optional for dot */
-    }
+function indexDayGapItems(items) {
+  const byDate = new Map();
+  for (const g of items || []) {
+    if (!g?.date) continue;
+    if (!byDate.has(g.date)) byDate.set(g.date, []);
+    byDate.get(g.date).push(g);
   }
-  const dates = state.days.map((d) => d.date).filter(Boolean);
-  if (dates.length) {
-    const from = dates.reduce((a, b) => (a < b ? a : b));
-    const to = dates.reduce((a, b) => (a > b ? a : b));
-    try {
-      const gaps = await api(`/gaps?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=500`);
-      state.dayGapItems = gaps.items || [];
-    } catch {
-      state.dayGapItems = [];
-    }
-  } else {
+  state.dayGapsByDate = byDate;
+}
+
+async function fetchDayGapsForLoadedDays() {
+  const dates = (state.days || []).map((d) => d.date).filter(Boolean);
+  if (!dates.length) {
+    state.dayGapItems = [];
+    indexDayGapItems([]);
+    return;
+  }
+  const from = dates.reduce((a, b) => (a < b ? a : b));
+  const to = dates.reduce((a, b) => (a > b ? a : b));
+  try {
+    const gaps = await api(`/gaps?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=500`);
+    state.dayGapItems = gaps.items || [];
+  } catch {
     state.dayGapItems = [];
   }
+  indexDayGapItems(state.dayGapItems);
+}
+
+async function loadDays({ fetchGaps = true } = {}) {
+  const q = state.daysQ ? `&q=${encodeURIComponent(state.daysQ)}` : "";
+  const loads = [api(`/days?limit=200${q}`)];
+  if (!state.weights?.length) {
+    loads.push(loadWeights().catch(() => {}));
+  }
+  const [data] = await Promise.all(loads);
+  state.days = data.days || [];
+  if (fetchGaps) await fetchDayGapsForLoadedDays();
+  else indexDayGapItems(state.dayGapItems);
 }
 
 async function loadWeights() {
-  const data = await api("/weight");
+  const [data, ov] = await Promise.all([
+    api("/weight"),
+    api("/overview?days=1").catch(() => null),
+  ]);
   state.weights = data.weights || [];
-  const ov = await api("/overview?days=1");
-  state.overview = ov;
-  applyKcalBudgetFromOverview(ov);
+  if (ov) {
+    state.overview = ov;
+    applyKcalBudgetFromOverview(ov);
+  }
+}
+
+async function loadTodayTabData() {
+  const jobs = [];
+  if (!state.foods?.length) jobs.push(loadFoods());
+  if (!state.stock?.length) {
+    jobs.push(loadStock().catch(() => {}));
+  }
+  if (!state.weights?.length) {
+    jobs.push(loadWeights().catch(() => {}));
+  }
+  if (jobs.length) await Promise.all(jobs);
+  await loadDay();
 }
 
 async function loadTabData() {
-  if (state.tab === "days") await loadDays();
+  if (state.tab === "days") {
+    await loadDays();
+    return;
+  }
   if (state.tab === "settings" && !state.kcalBudget) {
     try {
       const data = await api("/settings");
@@ -2368,28 +2746,21 @@ async function loadTabData() {
     } catch {
       state.kcalBudget = mergedKcalBudget(null);
     }
+    return;
   }
-  if (state.tab === "weight") await loadWeights();
-  if (state.tab === "foods") await loadFoods();
-  if (state.tab === "stock") await loadStock();
-  if (state.tab === "today") {
-    if (!state.foods?.length) await loadFoods();
-    if (!state.stock?.length) {
-      try {
-        await loadStock();
-      } catch {
-        /* stock optional for row hints */
-      }
-    }
-    if (!state.weights?.length) {
-      try {
-        await loadWeights();
-      } catch {
-        /* weigh-in optional for header dot */
-      }
-    }
-    await loadDay();
+  if (state.tab === "weight") {
+    await loadWeights();
+    return;
   }
+  if (state.tab === "foods") {
+    await loadFoods();
+    return;
+  }
+  if (state.tab === "stock") {
+    await loadStock();
+    return;
+  }
+  if (state.tab === "today") await loadTodayTabData();
 }
 
 function syncTodayInUrl() {
@@ -2414,12 +2785,15 @@ export async function goToTab(tab, { date, replace = false } = {}) {
   } else if (date) {
     state.date = date;
   }
+  state.tabLoading = true;
+  pushAppRoute(state, { replace });
+  render();
   try {
     await loadTabData();
   } catch (e) {
     toast(e.message);
   }
-  pushAppRoute(state, { replace });
+  state.tabLoading = false;
   render();
 }
 
@@ -2439,9 +2813,7 @@ async function boot() {
   applyKcalBudgetFromOverview(state.overview);
   applyRouteToState(state);
   if (!state.date) state.date = resolveTodayDate(state);
-  await loadFoods();
-  await loadStock();
-  await loadWeights();
+  await Promise.all([loadFoods(), loadStock(), loadWeights()]);
   await loadTabData();
   pushAppRoute(state, { replace: true });
   render();

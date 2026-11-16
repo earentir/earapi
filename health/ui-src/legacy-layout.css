@@ -1143,6 +1143,196 @@ button.row-vert-label.pick-tag:hover {
   font-size: 1.05rem;
 }
 
+.food-alias-section {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.food-alias-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.food-alias-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0.2rem 0.35rem 0.2rem 0.5rem;
+  font-size: 0.82rem;
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.food-alias-chip-remove {
+  flex: 0 0 auto;
+  padding: 0 0.35rem;
+  line-height: 1.2;
+  font-size: 1.05rem;
+  opacity: 0.75;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.food-alias-chip-remove:hover {
+  opacity: 1;
+}
+
+.weight-chart-card {
+  margin-bottom: 0;
+}
+
+.weight-chart-host {
+  position: relative;
+  width: 100%;
+  min-height: 12rem;
+}
+
+.weight-chart-svg {
+  width: 100%;
+  height: 12rem;
+  display: block;
+}
+
+.weight-chart-grid line {
+  stroke: color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  stroke-width: 1;
+}
+
+.weight-chart-line {
+  stroke: var(--color-primary);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.weight-chart-dot {
+  fill: var(--color-primary);
+  stroke: var(--color-base-100);
+  stroke-width: 2;
+}
+
+.weight-chart-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.weight-chart-point:focus-visible .weight-chart-dot {
+  stroke: var(--color-accent, var(--color-primary));
+  stroke-width: 3;
+}
+
+.weight-chart-axis {
+  fill: var(--muted, color-mix(in oklab, var(--color-base-content) 55%, transparent));
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+
+.weight-chart-tip {
+  position: absolute;
+  z-index: 20;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+  border-radius: var(--rounded-box, 0.5rem);
+  background: var(--color-neutral);
+  color: var(--color-neutral-content);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+
+.weight-chart-tip[hidden] {
+  display: none !important;
+}
+
+.days-kcal-chart-card {
+  margin-bottom: 0.65rem;
+}
+
+.days-kcal-chart-host {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 12rem;
+}
+
+.days-kcal-chart-svg {
+  height: 12rem;
+  min-width: 100%;
+  display: block;
+}
+
+.days-kcal-guide {
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.days-kcal-guide--soft-low {
+  stroke: var(--ok, #3ecf8e);
+}
+
+.days-kcal-guide--soft-high {
+  stroke: #d4b429;
+}
+
+.days-kcal-guide--gain {
+  stroke: var(--warn, #f87171);
+}
+
+.days-kcal-guide-label {
+  fill: var(--muted, color-mix(in oklab, var(--color-base-content) 55%, transparent));
+  font-size: 9px;
+  font-family: ui-monospace, monospace;
+}
+
+.days-kcal-chart-axis {
+  fill: var(--muted, color-mix(in oklab, var(--color-base-content) 55%, transparent));
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+}
+
+.days-kcal-bar-group {
+  cursor: pointer;
+}
+
+.days-kcal-bar-group:focus-visible .days-kcal-bar-fill {
+  stroke: var(--color-base-content);
+  stroke-width: 1;
+}
+
+.days-kcal-chart-tip {
+  position: absolute;
+  z-index: 20;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+  max-width: 20rem;
+  border-radius: var(--rounded-box, 0.5rem);
+  background: var(--color-neutral);
+  color: var(--color-neutral-content);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.days-kcal-chart-tip[hidden] {
+  display: none !important;
+}
+
+.food-catalog-aliases {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 .entity-form-modal .form-modal-hint {
   margin: 0 0 0.5rem;
   font-size: 0.82rem;
