@@ -62,6 +62,25 @@ export function kcalBudgetBand(kcal, settings) {
   return "red";
 }
 
+/** Intake bar band from stored day kcal + budget (same for list bar, chart, filter). */
+export function dayIntakeBand(d, budgetRaw) {
+  return kcalBudgetBand(d?.totals?.kcal, budgetRaw);
+}
+
+const INTAKE_BAND_IDS = ["green", "yellow", "orange", "red", "none"];
+
+/** Count days per intake band in the current loaded set. */
+export function dayBandCounts(days, budgetRaw) {
+  const list = days || [];
+  const counts = { all: list.length, green: 0, yellow: 0, orange: 0, red: 0, none: 0 };
+  for (const d of list) {
+    const b = dayIntakeBand(d, budgetRaw);
+    if (INTAKE_BAND_IDS.includes(b)) counts[b]++;
+    else counts.none++;
+  }
+  return counts;
+}
+
 const BAND_LABEL = {
   green: "Below soft intake band",
   yellow: "In soft intake band",
