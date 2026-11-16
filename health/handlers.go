@@ -113,7 +113,7 @@ func (s *Service) handleHelp(c *gin.Context) {
 			"PUT /health/v1/foods/:id",
 			"DELETE /health/v1/foods/:id",
 			"GET /health/v1/settings",
-			"PUT /health/v1/settings  (body: soft_low_kcal, soft_high_kcal, gain_min_kcal, soft_low_sodium_mg, soft_high_sodium_mg, ceiling_sodium_mg, meal_margin_percent, legacy_diff_*)",
+			"PUT /health/v1/settings  (body: kcal/sodium bands, sex, age_years, height_cm; GET adds bmr_kcal + sedentary_kcal from latest kg)",
 			"GET /health/v1/stock?active=1",
 			"GET /health/v1/stock/:id",
 			"POST /health/v1/stock",
@@ -271,7 +271,7 @@ func (s *Service) handleSettingsGet(c *gin.Context) {
 	if !ok {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"settings": st.GetKcalBudgetSettings()})
+	c.JSON(http.StatusOK, gin.H{"settings": st.SettingsWithEnergy()})
 }
 
 func (s *Service) handleSettingsPut(c *gin.Context) {

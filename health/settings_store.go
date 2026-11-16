@@ -10,9 +10,12 @@ func (s *Store) GetKcalBudgetSettings() KcalBudgetSettings {
 	row := s.db.QueryRow(`SELECT soft_low_kcal, soft_high_kcal, gain_min_kcal,
 		soft_low_sodium_mg, soft_high_sodium_mg, ceiling_sodium_mg,
 		meal_margin_percent,
-		legacy_diff_green_lt, legacy_diff_yellow_lt, legacy_diff_orange_lt FROM user_settings WHERE user_id = ?`, s.userID)
-	var low, high, gain, naLow, naHigh, naCeil, margin, diffG, diffY, diffO sql.NullFloat64
-	err := row.Scan(&low, &high, &gain, &naLow, &naHigh, &naCeil, &margin, &diffG, &diffY, &diffO)
+		legacy_diff_green_lt, legacy_diff_yellow_lt, legacy_diff_orange_lt,
+		sex, age_years, height_cm FROM user_settings WHERE user_id = ?`, s.userID)
+	var low, high, gain, naLow, naHigh, naCeil, margin, diffG, diffY, diffO, height sql.NullFloat64
+	var sex sql.NullString
+	var age sql.NullInt64
+	err := row.Scan(&low, &high, &gain, &naLow, &naHigh, &naCeil, &margin, &diffG, &diffY, &diffO, &sex, &age, &height)
 	if err == sql.ErrNoRows {
 		_ = s.ensureKcalBudgetDefaults()
 		return def
@@ -51,7 +54,24 @@ func (s *Store) GetKcalBudgetSettings() KcalBudgetSettings {
 	if diffO.Valid && diffO.Float64 > 0 {
 		out.LegacyDiffOrangeLt = diffO.Float64
 	}
+	if sex.Valid {
+		out.Sex = sex.String
+	}
+	if age.Valid && age.Int64 > 0 {
+		out.AgeYears = int(age.Int64)
+	}
+	if height.Valid && height.Float64 > 0 {
+		out.HeightCm = height.Float64
+	}
 	return out.normalized()
+}
+
+func (s *Store) SettingsWithEnergy() KcalBudgetSettings {
+	out := s.GetKcalBudgetSettings()
+	if w, ok := s.LatestWeight(); ok {
+		attachEnergyEstimate(&out, w.Kg)
+	}
+	return out
 }
 
 func (s *Store) PutKcalBudgetSettings(in KcalBudgetSettings) (KcalBudgetSettings, error) {
@@ -62,8 +82,9 @@ func (s *Store) PutKcalBudgetSettings(in KcalBudgetSettings) (KcalBudgetSettings
 	_, err := s.db.Exec(`INSERT INTO user_settings (user_id, soft_low_kcal, soft_high_kcal, gain_min_kcal,
 			soft_low_sodium_mg, soft_high_sodium_mg, ceiling_sodium_mg,
 			meal_margin_percent,
-			legacy_diff_green_lt, legacy_diff_yellow_lt, legacy_diff_orange_lt)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			legacy_diff_green_lt, legacy_diff_yellow_lt, legacy_diff_orange_lt,
+			sex, age_years, height_cm)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
 		  soft_low_kcal=excluded.soft_low_kcal,
 		  soft_high_kcal=excluded.soft_high_kcal,
@@ -74,15 +95,23 @@ func (s *Store) PutKcalBudgetSettings(in KcalBudgetSettings) (KcalBudgetSettings
 		  meal_margin_percent=excluded.meal_margin_percent,
 		  legacy_diff_green_lt=excluded.legacy_diff_green_lt,
 		  legacy_diff_yellow_lt=excluded.legacy_diff_yellow_lt,
-		  legacy_diff_orange_lt=excluded.legacy_diff_orange_lt`,
+		  legacy_diff_orange_lt=excluded.legacy_diff_orange_lt,
+		  sex=excluded.sex,
+		  age_years=excluded.age_years,
+		  height_cm=excluded.height_cm`,
 		s.userID, in.SoftLowKcal, in.SoftHighKcal, in.GainMinKcal,
 		in.SoftLowSodiumMg, in.SoftHighSodiumMg, in.CeilingSodiumMg,
 		in.MealMarginPercent,
-		in.LegacyDiffGreenLt, in.LegacyDiffYellowLt, in.LegacyDiffOrangeLt)
+		in.LegacyDiffGreenLt, in.LegacyDiffYellowLt, in.LegacyDiffOrangeLt,
+		in.Sex, in.AgeYears, in.HeightCm)
 	if err != nil {
 		return KcalBudgetSettings{}, err
 	}
-	return in, nil
+	out := in
+	if w, ok := s.LatestWeight(); ok {
+		attachEnergyEstimate(&out, w.Kg)
+	}
+	return out, nil
 }
 
 func (s *Store) ensureKcalBudgetDefaults() error {

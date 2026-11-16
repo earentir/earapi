@@ -146,6 +146,21 @@ func migrateHealthDB(db *sql.DB) error {
 			return err
 		}
 	}
+	if !tableHasColumn(db, "user_settings", "sex") {
+		if _, err := db.Exec(`ALTER TABLE user_settings ADD COLUMN sex TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if !tableHasColumn(db, "user_settings", "age_years") {
+		if _, err := db.Exec(`ALTER TABLE user_settings ADD COLUMN age_years INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	if !tableHasColumn(db, "user_settings", "height_cm") {
+		if _, err := db.Exec(`ALTER TABLE user_settings ADD COLUMN height_cm REAL NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
 	for col, def := range map[string]float64{
 		"soft_low_sodium_mg":    DefaultSoftLowSodiumMg,
 		"soft_high_sodium_mg":   DefaultSoftHighSodiumMg,

@@ -20,6 +20,14 @@ type KcalBudgetSettings struct {
 	LegacyDiffGreenLt  float64 `json:"legacy_diff_green_lt"`  // delta < this → green
 	LegacyDiffYellowLt float64 `json:"legacy_diff_yellow_lt"` // delta < this → yellow
 	LegacyDiffOrangeLt float64 `json:"legacy_diff_orange_lt"` // delta < this → orange; else red
+	// Body profile for Mifflin-St Jeor (persisted).
+	Sex      string  `json:"sex,omitempty"`       // male | female
+	AgeYears int     `json:"age_years,omitempty"`
+	HeightCm float64 `json:"height_cm,omitempty"`
+	// Computed on GET from latest weigh-in (not stored).
+	BmrKcal        float64 `json:"bmr_kcal,omitempty"`
+	SedentaryKcal  float64 `json:"sedentary_kcal,omitempty"`
+	EnergyWeightKg float64 `json:"energy_weight_kg,omitempty"`
 }
 
 const (
@@ -90,6 +98,10 @@ func (s KcalBudgetSettings) normalized() KcalBudgetSettings {
 		s.SoftHighSodiumMg = d.SoftHighSodiumMg
 		s.CeilingSodiumMg = d.CeilingSodiumMg
 	}
+	s.Sex = normalizeSex(s.Sex)
+	s.BmrKcal = 0
+	s.SedentaryKcal = 0
+	s.EnergyWeightKg = 0
 	return s
 }
 
@@ -113,6 +125,9 @@ func (s KcalBudgetSettings) Validate() error {
 	}
 	if !(s.LegacyDiffGreenLt < s.LegacyDiffYellowLt && s.LegacyDiffYellowLt < s.LegacyDiffOrangeLt) {
 		return fmt.Errorf("%w: need legacy_diff_green_lt < legacy_diff_yellow_lt < legacy_diff_orange_lt", ErrInvalidInput)
+	}
+	if err := s.validateEnergyProfile(); err != nil {
+		return err
 	}
 	return nil
 }

@@ -217,7 +217,7 @@ func (s *Store) Overview(recentLimit int) Overview {
 		Today:      today,
 		RecentDays: s.FilterDays(from, today, "", "", "", recentLimit),
 		FoodCount:  s.FoodCount(),
-		Settings:   s.GetKcalBudgetSettings(),
+		Settings:   s.SettingsWithEnergy(),
 	}
 	if w, ok := s.LatestWeight(); ok {
 		ov.LatestWeight = w
