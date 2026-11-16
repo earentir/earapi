@@ -25,7 +25,7 @@ func parseNutrientsFromNotes(notes string) (kcal, sod *float64) {
 		v := parseFloatLoose(m[1])
 		sod = &v
 	} else if m := noteSaltGPer100gRe.FindStringSubmatch(notes); len(m) > 1 {
-		v := parseFloatLoose(m[1]) * 1000 // g salt → mg sodium (NaCl approx)
+		v := SodiumMgFromSaltPer100g(parseFloatLoose(m[1]))
 		sod = &v
 	}
 	return kcal, sod

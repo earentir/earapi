@@ -58,7 +58,7 @@ func ParseEULabelFromText(text string) Food {
 			f.KcalPer100g = nk
 		}
 		if ns != nil {
-			salt := *ns / 400
+			salt := SaltGFromSodiumMgPer100g(*ns)
 			f.SaltGPer100g = &salt
 		}
 	} else if f.KcalPer100g == nil {
@@ -66,7 +66,7 @@ func ParseEULabelFromText(text string) Food {
 		f.KcalPer100g = nk
 	}
 	if f.SaltGPer100g != nil && f.SodiumMgPer100g == nil {
-		sod := *f.SaltGPer100g * 400
+		sod := SodiumMgFromSaltPer100g(*f.SaltGPer100g)
 		f.SodiumMgPer100g = &sod
 	}
 	return f
@@ -82,10 +82,10 @@ func NormalizeFoodLabel(f *Food) {
 		f.EnergyKjPer100g = &kj
 	}
 	if f.SaltGPer100g != nil && f.SodiumMgPer100g == nil {
-		sod := *f.SaltGPer100g * 400
+		sod := SodiumMgFromSaltPer100g(*f.SaltGPer100g)
 		f.SodiumMgPer100g = &sod
 	} else if f.SodiumMgPer100g != nil && f.SaltGPer100g == nil {
-		salt := *f.SodiumMgPer100g / 400
+		salt := SaltGFromSodiumMgPer100g(*f.SodiumMgPer100g)
 		f.SaltGPer100g = &salt
 	}
 }
