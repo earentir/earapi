@@ -56,6 +56,8 @@ export const state = {
   tabLoading: false,
   dayGapItems: [],
   dayGapsByDate: null,
+  daysRange: "28",
+  weightRange: "28",
   daysStatusFilter: "all",
   foodsQ: "",
   weights: [],

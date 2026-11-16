@@ -476,15 +476,70 @@ td.mono, .date-iso { white-space: nowrap; }
 .meal-band-na.meal-band--orange { color: #e6940a; }
 .meal-band-kcal.meal-band--red,
 .meal-band-na.meal-band--red { color: var(--warn, #f87171); }
+.days-filters-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem 1rem;
+  margin: 0 0 0.75rem;
+}
+.period-range-field,
+.days-range-field {
+  flex: 0 0 auto;
+  margin: 0;
+  min-width: 9.5rem;
+}
+.period-range-field > span,
+.days-range-field > span {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.period-range-select,
+.days-range-select {
+  width: 100%;
+  min-height: 2rem;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--rounded-btn, 0.4rem);
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 18%, transparent);
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+}
+.weight-chart-period {
+  margin: 0 0 0.5rem;
+}
 .days-filter-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-  margin: 0 0 0.75rem;
+  flex: 1 1 auto;
+  align-items: center;
 }
 .days-filter-pill {
   min-height: 2rem;
   font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.days-filter-pill .kcal-band-swatch {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex-shrink: 0;
+}
+.days-filter-pill .kcal-band-swatch--none {
+  background: color-mix(in oklab, var(--color-base-content) 35%, transparent);
+}
+.days-filter-count {
+  font-size: 0.72rem;
+  opacity: 0.85;
+  margin-left: 0.1rem;
+}
+.days-list-count {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
 }
 .slot-lab {
   color: var(--muted);

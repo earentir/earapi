@@ -139,9 +139,10 @@ export function mountWeightChart(host, weights) {
   host.appendChild(tip);
 }
 
-export function weightChartSectionHtml() {
+export function weightChartSectionHtml(periodSelectHtml = "") {
   return `<section class="card weight-chart-card">
-    <h2 style="margin:0 0 0.5rem;font-size:1rem">Weight trend</h2>
+    <h2 style="margin:0 0 0.35rem;font-size:1rem">Weight trend</h2>
+    ${periodSelectHtml ? `<div class="weight-chart-period">${periodSelectHtml}</div>` : ""}
     <div class="weight-chart-host" data-weight-chart></div>
   </section>`;
 }

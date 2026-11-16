@@ -40,10 +40,13 @@ import {
   mealLineFoodSuggestions, foodPickCandidates,
 } from "./fuzzy.js";
 import { matchStockLotByName } from "./stock-match.js";
-import { DEFAULT_KCAL_BUDGET, mergedKcalBudget, dayKcalBarParts } from "./kcal-budget.js";
+import {
+  DEFAULT_KCAL_BUDGET, mergedKcalBudget, dayKcalBarParts, dayIntakeBand, dayBandCounts,
+} from "./kcal-budget.js";
 import { dataBackupBarHtml, bindDataBackupHandlers } from "./data-backup.js";
 import { weightChartSectionHtml, mountWeightChart } from "./weight-chart.js";
 import { daysKcalChartSectionHtml, mountDaysKcalChart } from "./days-kcal-chart.js";
+import { daysRangeQueryString, periodRangeSelectHtml, recordsInRange } from "./days-range.js";
 
 function defaultSetName(slot) {
   const s = (slot || "").trim().toLowerCase();
@@ -256,14 +259,12 @@ function slotLegacyDiffDot(slot, field) {
 }
 
 function dayHeaderTotalMarkup(d, totals) {
-  const diffDay = legacyDayForDiff();
-  const disp = dayDisplay(diffDay);
   const kcal = Number(totals?.kcal) || 0;
   const sod = Number(totals?.sodium_mg) || 0;
-  const intakeBand = mealBandClass(disp.intake_bar_band);
-  const naIntakeBand = mealBandClass(disp.sodium_intake_band);
-  const kDot = legacyDiffDot(diffDay, "kcal");
-  const naDot = legacyDiffDot(diffDay, "sodium");
+  const intakeBand = mealBandClass(dayIntakeBand(d, state.kcalBudget));
+  const naIntakeBand = mealBandClass(dayDisplay(d).sodium_intake_band);
+  const kDot = legacyDiffDot(d, "kcal");
+  const naDot = legacyDiffDot(d, "sodium");
   return `<span class="mono day-card-head-totals"><span class="day-card-head-energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span><span class="day-card-head-energy-unit"> kcal</span>${kDot}</span>, <span class="day-card-head-energy"><span class="meal-band-na ${naIntakeBand}">${fmt(sod, 0)}</span><span class="day-card-head-energy-unit"> mg Na</span>${naDot}</span></span>`;
 }
 
@@ -283,7 +284,7 @@ function dayPanelEnergyMarkup(totals, d) {
 }
 
 function renderDayKcalBar(_kcal, d) {
-  const band = dayDisplay(d).intake_bar_band || "none";
+  const band = dayIntakeBand(d, state.kcalBudget);
   const parts = dayKcalBarParts(band);
   const tip = parts.title ? ` title="${esc(parts.title)}"` : "";
   const bar = parts.barClass
@@ -974,30 +975,61 @@ function dayStatusForList(d) {
 function dayMatchesStatusFilter(d) {
   const f = state.daysStatusFilter || "all";
   if (f === "all") return true;
-  return dayStatusForList(d).level === f;
+  // Legacy ids from old gap/status filter
+  const legacy = { ok: "green", warn: "orange", bad: "red", clear: "green" };
+  const band = legacy[f] || f;
+  return dayIntakeBand(d, state.kcalBudget) === band;
 }
 
-const DAYS_STATUS_FILTERS = [
+const DAYS_INTAKE_FILTERS = [
   { id: "all", label: "All" },
-  { id: "ok", label: "Clear" },
-  { id: "warn", label: "Orange" },
-  { id: "bad", label: "Red" },
+  { id: "green", label: "Green", swatch: "green" },
+  { id: "yellow", label: "Yellow", swatch: "yellow" },
+  { id: "orange", label: "Orange", swatch: "orange" },
+  { id: "red", label: "Red", swatch: "red" },
+  { id: "none", label: "No kcal", swatch: "none" },
 ];
 
-function daysStatusFilterBar() {
+function daysRangeSelectHtml() {
+  return periodRangeSelectHtml("days-range", state.daysRange, esc, { label: "Range" });
+}
+
+function daysStatusFilterBar(counts) {
   const cur = state.daysStatusFilter || "all";
-  const pills = DAYS_STATUS_FILTERS.map(({ id, label }) => {
+  const c = counts || { all: 0, green: 0, yellow: 0, orange: 0, red: 0, none: 0 };
+  const pills = DAYS_INTAKE_FILTERS.map(({ id, label, swatch }) => {
     const active = cur === id ? " btn-primary" : " btn-ghost";
-    return `<button type="button" class="btn btn-sm days-filter-pill${active}" data-days-filter="${id}">${label}</button>`;
+    const chip = swatch
+      ? `<span class="kcal-band-swatch kcal-band-swatch--${swatch}" aria-hidden="true"></span> `
+      : "";
+    const n = id === "all" ? c.all : c[id] || 0;
+    return `<button type="button" class="btn btn-sm days-filter-pill${active}" data-days-filter="${id}" aria-pressed="${cur === id}">${chip}${label}<span class="days-filter-count mono">${n}</span></button>`;
   }).join("");
-  return `<div class="days-filter-bar" role="group" aria-label="Filter by status">${pills}</div>`;
+  return `<div class="days-filter-bar" role="group" aria-label="Filter by daily kcal band">${pills}</div>`;
+}
+
+function daysListCountLine(visibleCount, totalCount, bandFilter) {
+  const total = Number(totalCount) || 0;
+  const visible = Number(visibleCount) || 0;
+  const filtered = bandFilter && bandFilter !== "all";
+  const dayWord = total === 1 ? "day" : "days";
+  if (!filtered) {
+    return `<p class="days-list-count muted" role="status"><span class="mono">${total}</span> ${dayWord} in range</p>`;
+  }
+  return `<p class="days-list-count muted" role="status"><span class="mono">${visible}</span> of <span class="mono">${total}</span> ${dayWord} in range</p>`;
+}
+
+function daysFiltersToolbar(counts) {
+  return `<div class="days-filters-toolbar">${daysRangeSelectHtml()}${daysStatusFilterBar(counts)}</div>`;
 }
 
 function daysView() {
   if (state.tabLoading && !(state.days || []).length) {
     return el(`<div class="days-loading muted" role="status">Loading days…</div>`);
   }
-  const visibleDays = (state.days || []).filter(dayMatchesStatusFilter);
+  const periodDays = state.days || [];
+  const bandCounts = dayBandCounts(periodDays, state.kcalBudget);
+  const visibleDays = periodDays.filter(dayMatchesStatusFilter);
   const cards = visibleDays.map((d) => {
     const meals = ["lunch", "dinner", "snack"].map((s) => mealLine(s, d)).join("");
     const meta = [d.bp ? `BP ${esc(d.bp)}` : "", d.walking ? esc(d.walking) : ""].filter(Boolean).join(", ");
@@ -1022,7 +1054,8 @@ function daysView() {
       <label class="field grow"><span>Search meals</span><input id="days-q" value="${esc(state.daysQ)}" placeholder="moussaka, pasta..."></label>
       <button class="btn primary" id="days-go">Search</button>
     </div>
-    ${daysStatusFilterBar()}
+    ${daysFiltersToolbar(bandCounts)}
+    ${daysListCountLine(visibleDays.length, periodDays.length, state.daysStatusFilter)}
     <div class="day-list">${
       cards ||
       `<p class="muted">${
@@ -1610,7 +1643,9 @@ function foodsView() {
 
 function weightView() {
   const latest = state.overview?.latest_weight;
-  const rows = (state.weights || []).slice().reverse().map((w) => `<tr class="clickable" data-open-weight="${esc(w.id)}">
+  const weightsInPeriod = recordsInRange(state.weights, state.weightRange, resolveTodayDate(state));
+  const periodSelect = periodRangeSelectHtml("weight-range", state.weightRange, esc);
+  const rows = weightsInPeriod.slice().reverse().map((w) => `<tr class="clickable" data-open-weight="${esc(w.id)}">
     <td class="mono">${esc(w.date)}</td>
     <td>${fmt(w.kg, 1)}</td>
     <td>${w.rhr_bpm ?? ""}</td>
@@ -1619,7 +1654,7 @@ function weightView() {
   </tr>`).join("");
   const root = el(`<div>
     ${dataBackupBarHtml("weight")}
-  ${weightChartSectionHtml()}
+  ${weightChartSectionHtml(periodSelect)}
     <div class="panel-toolbar row" style="margin-top:0.65rem">
       <p class="muted" style="margin:0;flex:1 1 auto">Latest: ${latest ? `${fmt(latest.kg, 1)} kg on ${esc(latest.date)}` : "none"}</p>
       <button type="button" class="btn primary" id="weight-add">Add weigh-in</button>
@@ -1631,7 +1666,7 @@ function weightView() {
       </table>
     </div>
   </div>`);
-  mountWeightChart(root.querySelector("[data-weight-chart]"), state.weights);
+  mountWeightChart(root.querySelector("[data-weight-chart]"), weightsInPeriod);
   return root;
 }
 
@@ -1998,6 +2033,15 @@ function bind() {
   });
   document.getElementById("days-q")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") document.getElementById("days-go")?.click();
+  });
+  document.getElementById("days-range")?.addEventListener("change", async (e) => {
+    state.daysRange = e.target.value || "28";
+    await loadDays();
+    render();
+  });
+  document.getElementById("weight-range")?.addEventListener("change", (e) => {
+    state.weightRange = e.target.value || "28";
+    render();
   });
   document.querySelectorAll("[data-days-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -2699,7 +2743,8 @@ async function fetchDayGapsForLoadedDays() {
 
 async function loadDays({ fetchGaps = true } = {}) {
   const q = state.daysQ ? `&q=${encodeURIComponent(state.daysQ)}` : "";
-  const loads = [api(`/days?limit=200${q}`)];
+  const rangeQ = daysRangeQueryString(state.daysRange, resolveTodayDate(state));
+  const loads = [api(`/days?limit=500${q}${rangeQ}`)];
   if (!state.weights?.length) {
     loads.push(loadWeights().catch(() => {}));
   }
