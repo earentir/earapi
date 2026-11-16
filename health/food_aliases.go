@@ -38,6 +38,67 @@ func (s *Store) ListFoodAliases() []FoodAlias {
 	return out
 }
 
+// bestFoodByAliasUnlocked resolves meal shorthand via exact or fuzzy alias rows.
+func (s *Store) bestFoodByAliasUnlocked(mealLine string) (*Food, bool) {
+	mealLine = strings.TrimSpace(mealLine)
+	if mealLine == "" {
+		return nil, false
+	}
+	if f, ok := s.foodByAliasUnlocked(mealLine); ok {
+		return f, true
+	}
+	rows, err := s.db.Query(`SELECT alias, food_id FROM food_aliases WHERE user_id = ?`, s.userID)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+	type scored struct {
+		foodID string
+		sc     int
+	}
+	var ranked []scored
+	for rows.Next() {
+		var alias, foodID string
+		if rows.Scan(&alias, &foodID) != nil {
+			continue
+		}
+		if !catalogMatchesMealLine(alias, mealLine) {
+			continue
+		}
+		sc := scoreNameForMealLine(alias, mealLine)
+		if sc < 80 {
+			continue
+		}
+		ranked = append(ranked, scored{foodID: foodID, sc: sc})
+	}
+	if err := rows.Err(); err != nil || len(ranked) == 0 {
+		return nil, false
+	}
+	for i := 0; i < len(ranked); i++ {
+		for j := i + 1; j < len(ranked); j++ {
+			if ranked[j].sc > ranked[i].sc {
+				ranked[i], ranked[j] = ranked[j], ranked[i]
+			}
+		}
+	}
+	best := ranked[0].sc
+	foodIDs := map[string]bool{}
+	for _, r := range ranked {
+		if r.sc < best-15 {
+			break
+		}
+		foodIDs[r.foodID] = true
+	}
+	if len(foodIDs) > 1 {
+		return nil, false
+	}
+	f, ok := s.foodByIDUnlocked(ranked[0].foodID)
+	if !ok {
+		return nil, false
+	}
+	return f, true
+}
+
 func (s *Store) foodByAliasUnlocked(alias string) (*Food, bool) {
 	alias = normalizeFoodAlias(alias)
 	if alias == "" {
@@ -71,6 +132,51 @@ func (s *Store) AddFoodAlias(foodID, alias string) (FoodAlias, error) {
 		return FoodAlias{}, err
 	}
 	return FoodAlias{Alias: norm, FoodID: foodID}, nil
+}
+
+// DeleteFoodAlias removes a shorthand link for this catalog food.
+func (s *Store) DeleteFoodAlias(foodID, alias string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return fmt.Errorf("%w: alias required", ErrInvalidInput)
+	}
+	if _, ok := s.foodByIDUnlocked(foodID); !ok {
+		return ErrNotFound
+	}
+	norm := normalizeFoodAlias(alias)
+	res, err := s.db.Exec(`DELETE FROM food_aliases WHERE user_id = ? AND food_id = ? AND alias = ? COLLATE NOCASE`,
+		s.userID, foodID, norm)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) ListFoodAliasesForFood(foodID string) []FoodAlias {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query(`SELECT alias, food_id FROM food_aliases WHERE user_id = ? AND food_id = ? ORDER BY alias`,
+		s.userID, foodID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []FoodAlias
+	for rows.Next() {
+		var a FoodAlias
+		if err := rows.Scan(&a.Alias, &a.FoodID); err != nil {
+			continue
+		}
+		out = append(out, a)
+	}
+	_ = rows.Err()
+	return out
 }
 
 func ensureFoodAliasTable(db *sql.DB) error {
