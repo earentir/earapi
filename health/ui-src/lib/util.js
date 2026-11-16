@@ -216,22 +216,30 @@ export function formModal({
   });
 }
 
-/** Modal shell with custom HTML; onSubmit(overlay) may return false to keep open. */
+/** Modal shell with custom HTML; onSubmit(overlay) may return false to keep open.
+ * deleteLabel + onDelete: optional; Delete button on the left of the action row (edit flows).
+ */
 export function customModal({
   title,
   bodyHtml,
   submitLabel = "Save",
   cancelLabel = "Cancel",
+  deleteLabel,
   extraClass = "",
   onMount,
   onSubmit,
+  onDelete,
 }) {
   return new Promise((resolve) => {
+    const deleteBtn = deleteLabel && onDelete
+      ? `<button type="button" class="btn danger" data-cm-delete>${esc(deleteLabel)}</button>`
+      : "";
     const overlay = el(`<div class="modal modal-open modal-middle ${extraClass}" role="dialog" aria-modal="true">
       <div class="modal-box modal-box-form modal-box-wide">
         <h3 class="text-lg font-bold">${esc(title)}</h3>
         <div class="custom-modal-body">${bodyHtml}</div>
         <div class="modal-action">
+          ${deleteBtn}
           <button type="button" class="btn" data-cm-cancel>${esc(cancelLabel)}</button>
           <button type="button" class="btn primary" data-cm-submit>${esc(submitLabel)}</button>
         </div>
@@ -243,6 +251,15 @@ export function customModal({
       resolve(ok);
     };
     overlay.querySelectorAll("[data-cm-cancel]").forEach((b) => b.addEventListener("click", () => close(false)));
+    overlay.querySelector("[data-cm-delete]")?.addEventListener("click", async () => {
+      if (!onDelete) return;
+      try {
+        const ok = await onDelete();
+        if (ok) close(false);
+      } catch {
+        /* onDelete shows toast */
+      }
+    });
     overlay.querySelector("[data-cm-submit]")?.addEventListener("click", async () => {
       if (onSubmit) {
         try {
