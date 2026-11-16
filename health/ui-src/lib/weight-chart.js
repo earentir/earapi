@@ -8,8 +8,24 @@ function weightSeries(weights) {
 }
 
 /** DaisyUI card + SVG line chart; hover points show date + kg. */
-export function mountWeightChart(host, weights) {
+export function mountWeightChart(host, weights, opts = {}) {
   if (!host) return;
+  let lastKey = "";
+  const paint = () => {
+    const key = `${host.clientWidth}x${host.clientHeight}`;
+    if (key === lastKey && host.querySelector("svg, p")) return;
+    lastKey = key;
+    paintWeightChart(host, weights, opts);
+  };
+  paint();
+  if (typeof ResizeObserver === "undefined") return;
+  host._chartRO?.disconnect();
+  const ro = new ResizeObserver(() => paint());
+  host._chartRO = ro;
+  ro.observe(host);
+}
+
+function paintWeightChart(host, weights, opts = {}) {
   const series = weightSeries(weights);
   host.replaceChildren();
   if (series.length < 2) {
@@ -25,14 +41,14 @@ export function mountWeightChart(host, weights) {
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("class", "weight-chart-svg");
-  svg.setAttribute("viewBox", "0 0 640 220");
+  const pad = { l: 48, r: 20, t: 20, b: 36 };
+  const W = Math.max(host.clientWidth || 640, 280);
+  const H = Math.max(host.clientHeight || 192, 160);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.setAttribute("preserveAspectRatio", "none");
   svg.setAttribute("aria-label", "Weight trend");
 
-  const pad = { l: 48, r: 20, t: 20, b: 36 };
-  const W = 640;
-  const H = 220;
-  const innerW = W - pad.l - pad.r;
+  const innerW = Math.max(1, W - pad.l - pad.r);
   const innerH = H - pad.t - pad.b;
 
   const kgs = series.map((s) => Number(s.kg));
@@ -98,7 +114,10 @@ export function mountWeightChart(host, weights) {
     g.appendChild(dot);
     const showTip = (evt) => {
       tip.hidden = false;
-      tip.textContent = `${s.date} — ${fmt(s.kg, 1)} kg`;
+      const bmr = opts.bmrForKg?.(s.kg);
+      tip.textContent = Number.isFinite(bmr)
+        ? `${s.date}, ${fmt(s.kg, 1)} kg, BMR ${fmt(bmr, 0)}`
+        : `${s.date}, ${fmt(s.kg, 1)} kg`;
       const hostRect = host.getBoundingClientRect();
       const x = evt?.clientX != null ? evt.clientX - hostRect.left : cx;
       const y = evt?.clientY != null ? evt.clientY - hostRect.top : cy;
@@ -139,10 +158,9 @@ export function mountWeightChart(host, weights) {
   host.appendChild(tip);
 }
 
-export function weightChartSectionHtml(periodSelectHtml = "") {
+export function weightChartSectionHtml() {
   return `<section class="card weight-chart-card">
-    <h2 style="margin:0 0 0.35rem;font-size:1rem">Weight trend</h2>
-    ${periodSelectHtml ? `<div class="weight-chart-period">${periodSelectHtml}</div>` : ""}
+    <h2 style="margin:0 0 0.5rem;font-size:1rem">Weight trend</h2>
     <div class="weight-chart-host" data-weight-chart></div>
   </section>`;
 }

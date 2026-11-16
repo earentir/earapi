@@ -11,16 +11,25 @@ const BAND_FILL = {
 
 export function daysKcalChartSectionHtml() {
   return `<section class="card days-kcal-chart-card">
-    <h2 style="margin:0 0 0.35rem;font-size:1rem">Daily kcal</h2>
-    <p class="muted days-kcal-chart-legend" style="margin:0 0 0.5rem;font-size:0.78rem">
-      Scale to gain line. Bands match filters: green (below soft low), yellow (soft band), orange (above soft high), red (gain+)
-    </p>
+    <h2 style="margin:0 0 0.5rem;font-size:1rem">Daily kcal</h2>
     <div class="days-kcal-chart-host" data-days-kcal-chart></div>
   </section>`;
 }
 
 export function mountDaysKcalChart(host, days, budgetRaw) {
   if (!host) return;
+  let lastKey = "";
+  const paint = () => {
+    const key = `${host.clientWidth}x${host.clientHeight}`;
+    if (key === lastKey && host.querySelector("svg, p")) return;
+    lastKey = key;
+    paintDaysKcalChart(host, days, budgetRaw);
+  };
+  paint();
+  watchChartHost(host, paint);
+}
+
+function paintDaysKcalChart(host, days, budgetRaw) {
   const budget = mergedKcalBudget(budgetRaw);
   const series = (days || [])
     .map((d) => ({
@@ -47,18 +56,19 @@ export function mountDaysKcalChart(host, days, budgetRaw) {
   tip.hidden = true;
 
   const pad = { l: 44, r: 52, t: 12, b: 28 };
-  const barW = 10;
-  const gap = 3;
-  const innerW = series.length * (barW + gap) - gap;
-  const W = Math.max(640, pad.l + pad.r + innerW);
-  const H = 200;
+  const W = Math.max(host.clientWidth || 640, 280);
+  const H = Math.max(host.clientHeight || 192, 160);
+  const innerW = Math.max(1, W - pad.l - pad.r);
   const innerH = H - pad.t - pad.b;
+  const slot = innerW / series.length;
+  const gap = Math.max(1, Math.min(10, slot * 0.18));
+  const barW = Math.max(1, slot - gap);
 
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("class", "days-kcal-chart-svg");
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  svg.setAttribute("preserveAspectRatio", "xMinYMid meet");
+  svg.setAttribute("preserveAspectRatio", "none");
   svg.setAttribute("aria-label", "Daily kcal bar chart");
 
   const yAt = (kcal) => pad.t + (1 - kcal / yMax) * innerH;
@@ -107,7 +117,7 @@ export function mountDaysKcalChart(host, days, budgetRaw) {
   const bars = document.createElementNS(svgNS, "g");
   bars.setAttribute("class", "days-kcal-bars");
   series.forEach((s, i) => {
-    const x = pad.l + i * (barW + gap);
+    const x = pad.l + i * slot + (slot - barW) / 2;
     const y0 = yAt(0);
     const y1 = yAt(s.kcal);
     const h = Math.max(2, y0 - y1);
@@ -119,7 +129,7 @@ export function mountDaysKcalChart(host, days, budgetRaw) {
     rect.setAttribute("y", String(y1));
     rect.setAttribute("width", String(barW));
     rect.setAttribute("height", String(h));
-    rect.setAttribute("rx", "2");
+    rect.setAttribute("rx", String(barW > 8 ? 2 : 1));
     rect.setAttribute("class", `days-kcal-bar-fill days-kcal-bar-fill--${s.band}`);
     rect.setAttribute("fill", BAND_FILL[s.band] || BAND_FILL.none);
     g.appendChild(rect);
@@ -150,4 +160,12 @@ export function mountDaysKcalChart(host, days, budgetRaw) {
 
   host.appendChild(svg);
   host.appendChild(tip);
+}
+
+function watchChartHost(host, paint) {
+  if (typeof ResizeObserver === "undefined") return;
+  host._chartRO?.disconnect();
+  const ro = new ResizeObserver(() => paint());
+  host._chartRO = ro;
+  ro.observe(host);
 }
