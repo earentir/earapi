@@ -10,6 +10,9 @@ export const DEFAULT_KCAL_BUDGET = {
   legacy_diff_green_lt: 100,
   legacy_diff_yellow_lt: 200,
   legacy_diff_orange_lt: 300,
+  sex: "",
+  age_years: 0,
+  height_cm: 0,
 };
 
 export function mergedKcalBudget(raw) {
@@ -18,6 +21,8 @@ export function mergedKcalBudget(raw) {
   const g = Number(raw.legacy_diff_green_lt);
   const y = Number(raw.legacy_diff_yellow_lt);
   const o = Number(raw.legacy_diff_orange_lt);
+  const age = Number(raw.age_years);
+  const height = Number(raw.height_cm);
   const merged = {
     soft_low_kcal: Number(raw.soft_low_kcal) || DEFAULT_KCAL_BUDGET.soft_low_kcal,
     soft_high_kcal: Number(raw.soft_high_kcal) || DEFAULT_KCAL_BUDGET.soft_high_kcal,
@@ -31,6 +36,10 @@ export function mergedKcalBudget(raw) {
     legacy_diff_green_lt: Number.isFinite(g) && g > 0 ? g : DEFAULT_KCAL_BUDGET.legacy_diff_green_lt,
     legacy_diff_yellow_lt: Number.isFinite(y) && y > 0 ? y : DEFAULT_KCAL_BUDGET.legacy_diff_yellow_lt,
     legacy_diff_orange_lt: Number.isFinite(o) && o > 0 ? o : DEFAULT_KCAL_BUDGET.legacy_diff_orange_lt,
+    sex: String(raw.sex || "").trim().toLowerCase() === "female" ? "female"
+      : String(raw.sex || "").trim().toLowerCase() === "male" ? "male" : "",
+    age_years: Number.isFinite(age) && age > 0 ? Math.round(age) : 0,
+    height_cm: Number.isFinite(height) && height > 0 ? height : 0,
   };
   if (
     !(merged.legacy_diff_green_lt < merged.legacy_diff_yellow_lt &&

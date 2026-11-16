@@ -59,5 +59,8 @@ export function periodRangeSelectHtml(selectId, curValue, esc, { label = "Period
     ({ id, label: optLabel }) =>
       `<option value="${esc(id)}"${id === cur ? " selected" : ""}>${esc(optLabel)}</option>`,
   ).join("");
-  return `<label class="field period-range-field"><span>${esc(label)}</span><select id="${esc(selectId)}" class="period-range-select">${opts}</select></label>`;
+  const cap = label
+    ? `<span>${esc(label)}</span>`
+    : `<span class="sr-only">Range</span>`;
+  return `<label class="field period-range-field${label ? "" : " period-range-field--bare"}">${cap}<select id="${esc(selectId)}" class="period-range-select">${opts}</select></label>`;
 }
