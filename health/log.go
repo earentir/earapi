@@ -152,7 +152,11 @@ func (s *Store) ApplyLog(req DayLog) (*DayLogResult, error) {
 			lastDay = d
 		}
 	}
-	out.Day = lastDay
+	if d, ok := s.GetDay(date); ok {
+		out.Day = d
+	} else {
+		out.Day = lastDay
+	}
 	if len(ensured) > 0 {
 		out.FoodsEnsured = ensured
 	}

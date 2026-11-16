@@ -92,6 +92,9 @@ func itemNeedsNutritionLeaf(it MealItem, foods []Food) bool {
 	if it.Kcal > 0 || it.SodiumMg > 0 {
 		return false
 	}
+	if strings.TrimSpace(it.Name) != "" && it.Grams <= 0 && it.Count <= 0 {
+		return true
+	}
 	if it.Grams <= 0 {
 		return false
 	}

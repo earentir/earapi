@@ -111,3 +111,40 @@ func (s *Store) maybeEnsureFoodFromItem(it *MealItem) ([]Food, error) {
 	}
 	return nil, nil
 }
+
+// MealHasCatalogLinkedItems is true when any line is tied to Foods or Stock (structured Today UI logs).
+func MealHasCatalogLinkedItems(m MealSlot) bool {
+	var found bool
+	var walk func(MealItem)
+	walk = func(it MealItem) {
+		if found {
+			return
+		}
+		if len(it.Parts) > 0 {
+			for i := range it.Parts {
+				walk(it.Parts[i])
+			}
+			return
+		}
+		if strings.TrimSpace(it.FoodID) != "" || strings.TrimSpace(it.StockLotID) != "" {
+			found = true
+		}
+	}
+	for i := range m.Items {
+		walk(m.Items[i])
+	}
+	return found
+}
+
+// DayHasCatalogLinkedItems reports whether any meal slot has catalog-linked structured lines.
+func DayHasCatalogLinkedItems(d *Day) bool {
+	if d == nil || d.Meals == nil {
+		return false
+	}
+	for _, m := range d.Meals {
+		if MealHasCatalogLinkedItems(m) {
+			return true
+		}
+	}
+	return false
+}

@@ -99,12 +99,22 @@ func (s *Store) ComputeMealSlotNutrition(date, slot string, meal MealSlot, legac
 	}, nil
 }
 
-// attachDayDisplay must be called with s.mu held (same as enrichDayTotalsUnlocked).
-func (s *Store) attachDayDisplay(d *Day) {
+// attachDayDisplayLight sets intake/diff bands from stored totals (no gap walk).
+func (s *Store) attachDayDisplayLight(d *Day) {
 	if d == nil {
 		return
 	}
-	gaps := collectItemGaps(d, s.listFoodsUnlocked(), s, 200)
+	settings := s.GetKcalBudgetSettings()
+	disp := dayDisplayFor(d, settings, nil)
+	d.Display = &disp
+}
+
+// attachDayDisplayWithFoods must be called with s.mu held (same as enrichDayTotalsUnlocked).
+func (s *Store) attachDayDisplayWithFoods(d *Day, foods []Food) {
+	if d == nil {
+		return
+	}
+	gaps := collectItemGaps(d, foods, s, 200)
 	settings := s.GetKcalBudgetSettings()
 	disp := dayDisplayFor(d, settings, gaps)
 	d.Display = &disp

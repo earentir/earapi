@@ -10,6 +10,34 @@ func TestApplyMealItemNoteMacrosLabelPer100(t *testing.T) {
 	}
 }
 
+func TestCalibrateMealSlotsFromRawTotalsSkipsCatalogLinkedUI(t *testing.T) {
+	d := &Day{Meals: map[string]MealSlot{
+		"dinner": {
+			Raw: `old blob → **~90 / ~312**`,
+			Items: []MealItem{
+				{Name: "ready meal", FoodID: "meal", Grams: 450, Kcal: 527, SodiumMg: 1980},
+				{
+					Name: "salad",
+					Grams: 289,
+					Parts: []MealItem{
+						{Name: "hot horn pepper", FoodID: "pepper", Grams: 15, Kcal: 5, SodiumMg: 1},
+						{Name: "EVOO", FoodID: "evoo", Grams: 4, Kcal: 35, SodiumMg: 0},
+					},
+					Kcal: 40,
+				},
+			},
+		},
+	}}
+	CalibrateMealSlotsFromRawTotals(d, 10)
+	part := d.Meals["dinner"].Items[1].Parts[0]
+	if part.Kcal < 4.5 || part.Kcal > 5.5 {
+		t.Fatalf("pepper kcal %v want ~5 (not crushed by stale raw)", part.Kcal)
+	}
+	if d.Meals["dinner"].Items[0].Kcal < 520 {
+		t.Fatalf("ready meal kcal %v want catalog (~527)", d.Meals["dinner"].Items[0].Kcal)
+	}
+}
+
 func TestCalibrateMealSlotsFromRawTotals(t *testing.T) {
 	d := &Day{Meals: map[string]MealSlot{
 		"lunch": {

@@ -147,8 +147,8 @@ func CalibrateMealSlotsFromRawTotals(d *Day, marginPercent float64) {
 		if raw == "" || len(m.Items) == 0 {
 			continue
 		}
-		_, legKcal := parseMealTotalFromRaw(raw)
-		if legKcal <= 0 {
+		legSod, legKcal := parseMealTotalFromRaw(raw)
+		if legKcal <= 0 && legSod <= 0 {
 			continue
 		}
 		RecomputeMealSlotTotalsFromItems(&m)
@@ -157,6 +157,22 @@ func CalibrateMealSlotsFromRawTotals(d *Day, marginPercent float64) {
 			catalogSlot = m.Kcal * (1 + marginPercent/100)
 		}
 		if catalogSlot <= 0 {
+			d.Meals[slot] = m
+			continue
+		}
+		// Today UI: trust per-item catalog math when markdown slot total is an obvious stale low (mg/kcal column order varies).
+		const staleSlotKcal = 150
+		if MealHasCatalogLinkedItems(m) {
+			staleLeg := legKcal
+			if legSod > 0 && legSod < staleSlotKcal && (staleLeg <= 0 || legSod < staleLeg) {
+				staleLeg = legSod
+			}
+			if staleLeg > 0 && staleLeg < staleSlotKcal && catalogSlot > staleLeg*1.02 {
+				d.Meals[slot] = m
+				continue
+			}
+		}
+		if legKcal <= 0 {
 			d.Meals[slot] = m
 			continue
 		}
@@ -180,6 +196,10 @@ func CalibrateDayTotalsFromLegacy(d *Day, marginPercent float64) {
 	}
 	dayKcal := catalogDayKcalBeforeStore(d, marginPercent)
 	if dayKcal <= 0 {
+		return
+	}
+	const staleDayKcal = 200
+	if DayHasCatalogLinkedItems(d) && d.LegacyTotals.Kcal < staleDayKcal && dayKcal > d.LegacyTotals.Kcal*1.5 {
 		return
 	}
 	f := d.LegacyTotals.Kcal / dayKcal

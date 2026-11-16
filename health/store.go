@@ -731,8 +731,9 @@ func (s *Store) GetDay(date string) (*Day, bool) {
 		_ = s.saveDayLocked(&dd)
 		return &dd, true
 	}
+	foods := s.listFoodsUnlocked()
 	s.enrichDayTotalsUnlocked(&dd)
-	s.attachDayDisplay(&dd)
+	s.attachDayDisplayWithFoods(&dd, foods)
 	return &dd, true
 }
 
@@ -842,8 +843,11 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 	}
 	cur, exists := d.Meals[slot]
 	if replace || !exists {
-		if replace && exists && strings.TrimSpace(meal.Raw) == "" && strings.TrimSpace(cur.Raw) != "" {
-			meal.Raw = cur.Raw
+		if replace && exists && strings.TrimSpace(meal.Raw) == "" {
+			// Structured UI replace: drop stale markdown so slot calibration won't crush per-item catalog math.
+			if len(meal.Items) == 0 && strings.TrimSpace(cur.Raw) != "" {
+				meal.Raw = cur.Raw
+			}
 		}
 		d.Meals[slot] = meal
 	} else {
@@ -867,8 +871,13 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 	if err := s.syncStockForMealSlotChange(date, slot, oldItems, mealAfter.Items); err != nil {
 		return nil, err
 	}
-	s.preserveLegacyTotalsLocked(d)
 	margin := s.mealMarginPercentUnlocked()
+	if DayHasCatalogLinkedItems(d) {
+		RecomputeDayTotalsWithMargin(d, margin)
+		d.LegacyTotals = d.Totals
+	} else {
+		s.preserveLegacyTotalsLocked(d)
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -987,7 +996,17 @@ func todayAthens() string {
 	return time.Now().In(loc).Format("2006-01-02")
 }
 
+// FilterDays returns days for list/search UI using stored totals (no per-row full nutrition recompute).
 func (s *Store) FilterDays(from, to, exactDate, q, slot string, limit int) []Day {
+	return s.filterDays(from, to, exactDate, q, slot, limit, false)
+}
+
+// FilterDaysComputed rescales meals and refreshes totals (export / when accuracy matters).
+func (s *Store) FilterDaysComputed(from, to, exactDate, q, slot string, limit int) []Day {
+	return s.filterDays(from, to, exactDate, q, slot, limit, true)
+}
+
+func (s *Store) filterDays(from, to, exactDate, q, slot string, limit int, enrich bool) []Day {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sqlQ := `SELECT date FROM days WHERE user_id = ?`
@@ -1022,6 +1041,7 @@ func (s *Store) FilterDays(from, to, exactDate, q, slot string, limit int) []Day
 		return nil
 	}
 	var out []Day
+	var foods []Food
 	for _, dt := range dates {
 		d, ok := s.readDayUnlocked(dt)
 		if !ok {
@@ -1039,8 +1059,15 @@ func (s *Store) FilterDays(from, to, exactDate, q, slot string, limit int) []Day
 		} else if q != "" && !dayMatchesQuery(d, q) {
 			continue
 		}
-		s.enrichDayTotalsUnlocked(d)
-		s.attachDayDisplay(d)
+		if enrich {
+			s.enrichDayTotalsUnlocked(d)
+			if foods == nil {
+				foods = s.listFoodsUnlocked()
+			}
+			s.attachDayDisplayWithFoods(d, foods)
+		} else {
+			s.attachDayDisplayLight(d)
+		}
 		out = append(out, *d)
 		if limit > 0 && len(out) >= limit {
 			break
@@ -1105,8 +1132,11 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool) 
 		var ok bool
 		if it.FoodID != "" {
 			f, ok = s.foodByIDUnlocked(it.FoodID)
-		} else if byAlias, okAlias := s.foodByAliasUnlocked(it.Name); okAlias {
+		} else if byAlias, okAlias := s.bestFoodByAliasUnlocked(it.Name); okAlias {
 			f, ok = byAlias, true
+			if it.FoodID == "" {
+				it.FoodID = f.ID
+			}
 		} else {
 			f, ok = BestFoodMatch(s.listFoodsUnlocked(), it.Name)
 		}
