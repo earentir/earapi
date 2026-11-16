@@ -47,6 +47,7 @@ import { dataBackupBarHtml, bindDataBackupHandlers } from "./data-backup.js";
 import { weightChartSectionHtml, mountWeightChart } from "./weight-chart.js";
 import { daysKcalChartSectionHtml, mountDaysKcalChart } from "./days-kcal-chart.js";
 import { daysRangeQueryString, periodRangeSelectHtml, recordsInRange } from "./days-range.js";
+import { energyFromInputs, estimatedMassDeltaGrams, kgOnOrBefore } from "./energy.js";
 
 function defaultSetName(slot) {
   const s = (slot || "").trim().toLowerCase();
@@ -258,6 +259,26 @@ function slotLegacyDiffDot(slot, field) {
   return legacyDiffDotMarkup(tip, band);
 }
 
+function dayMassDeltaMarkup(d, kcal) {
+  const b = mergedKcalBudget(state.kcalBudget);
+  const kg = kgOnOrBefore(d?.date || state.date, state.weights)
+    || Number(state.overview?.latest_weight?.kg)
+    || 0;
+  const est = energyFromInputs({
+    kg,
+    heightCm: b.height_cm,
+    ageYears: b.age_years,
+    sex: b.sex,
+  });
+  if (!est) return "";
+  const grams = estimatedMassDeltaGrams(kcal, est.sedentary);
+  if (grams == null) return "";
+  const signed = grams > 0 ? `+${grams}` : String(grams);
+  const kind = grams > 0 ? "gain" : grams < 0 ? "loss" : "flat";
+  const label = grams > 0 ? "estimated gain" : grams < 0 ? "estimated loss" : "estimated even";
+  return ` <span class="mono day-card-mass-delta day-card-mass-delta--${kind}" title="${esc(label)} vs sedentary ${fmt(est.sedentary, 0)} kcal">(${esc(signed)} g)</span>`;
+}
+
 function dayHeaderTotalMarkup(d, totals) {
   const kcal = Number(totals?.kcal) || 0;
   const sod = Number(totals?.sodium_mg) || 0;
@@ -265,7 +286,8 @@ function dayHeaderTotalMarkup(d, totals) {
   const naIntakeBand = mealBandClass(dayDisplay(d).sodium_intake_band);
   const kDot = legacyDiffDot(d, "kcal");
   const naDot = legacyDiffDot(d, "sodium");
-  return `<span class="mono day-card-head-totals"><span class="day-card-head-energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span><span class="day-card-head-energy-unit"> kcal</span>${kDot}</span>, <span class="day-card-head-energy"><span class="meal-band-na ${naIntakeBand}">${fmt(sod, 0)}</span><span class="day-card-head-energy-unit"> mg Na</span>${naDot}</span></span>`;
+  const mass = dayMassDeltaMarkup(d, kcal);
+  return `<span class="mono day-card-head-totals"><span class="day-card-head-energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span><span class="day-card-head-energy-unit"> kcal</span>${mass}${kDot}</span>, <span class="day-card-head-energy"><span class="meal-band-na ${naIntakeBand}">${fmt(sod, 0)}</span><span class="day-card-head-energy-unit"> mg Na</span>${naDot}</span></span>`;
 }
 
 function dayPanelEnergyMarkup(totals, d) {
@@ -277,8 +299,9 @@ function dayPanelEnergyMarkup(totals, d) {
   const naIntakeBand = mealBandClass(disp.sodium_intake_band);
   const kDot = legacyDiffDot(diffDay, "kcal");
   const naDot = legacyDiffDot(diffDay, "sodium");
+  const mass = dayMassDeltaMarkup(d || { date: state.date }, kcal);
   return {
-    kcal: `<span class="stat-value mono stat-value--energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span> <span class="stat-unit">kcal</span>${kDot}</span>`,
+    kcal: `<span class="stat-value mono stat-value--energy"><span class="meal-band-kcal ${intakeBand}">${fmt(kcal, 0)}</span> <span class="stat-unit">kcal</span>${mass}${kDot}</span>`,
     sodium: `<span class="stat-value mono stat-value--energy"><span class="meal-band-na ${naIntakeBand}">${fmt(sod, 0)}</span> <span class="stat-unit">mg</span>${naDot}</span>`,
   };
 }
@@ -1336,6 +1359,10 @@ async function openStockBatchModal() {
     bodyHtml: stockBatchEditorHtml(),
     submitLabel: editing ? "Save changes" : "Save batch",
     extraClass: "stock-batch-modal",
+    deleteLabel: editing ? "Delete" : undefined,
+    onDelete: editing
+      ? () => deleteStock(state.stockForm?.id)
+      : undefined,
     onMount: bindStockModal,
     onSubmit: async () => {
       try {
@@ -1386,7 +1413,7 @@ function stockView() {
     const batch = lot.batch_grams || 0;
     const hasLeft = left > 0.01;
     const qtyLabel = batch > 0 ? `${fmt(left, 0)}/${fmt(batch, 0)} g` : `${fmt(left, 0)} g`;
-    return `<article class="card stock-card${active ? "" : " stock-inactive"}" style="margin-bottom:0.65rem">
+    return `<article class="card stock-card clickable${active ? "" : " stock-inactive"}" data-open-stock="${esc(lot.id)}" style="margin-bottom:0.65rem">
       <div class="slot-head stock-lot-head">
         <label class="stock-active-switch" title="Active in fridge">
           <input type="checkbox" data-stock-active="${esc(lot.id)}" ${active ? "checked" : ""}>
@@ -1400,13 +1427,11 @@ function stockView() {
       ${stockUsageRows(lot)}
       ${lot.notes ? `<p class="muted" style="font-size:0.78rem;max-height:4.5rem;overflow:auto;margin-top:0.35rem">${esc(lot.notes)}</p>` : ""}
       ${!active && hasLeft ? `<p class="muted" style="font-size:0.78rem;margin-top:0.25rem">Imported from an old “still in stock” note. Toggle <strong>On</strong> only if it is still in the fridge.</p>` : ""}
-      <div class="row" style="margin-top:0.5rem;flex-wrap:wrap;gap:0.35rem">
-        ${active && hasLeft ? `<button type="button" class="btn primary" data-draw-stock="${esc(lot.id)}">Log my meal</button>` : ""}
-        ${hasLeft ? `<button type="button" class="btn" data-stock-use="${esc(lot.id)}">Use (no log)</button>` : ""}
-        ${hasLeft ? `<button type="button" class="btn" data-stock-discard="${esc(lot.id)}">Discard</button>` : ""}
-        <button type="button" class="btn" data-edit-stock="${esc(lot.id)}">Edit</button>
-        <button type="button" class="btn danger" data-del-stock="${esc(lot.id)}">Delete</button>
-      </div>
+      ${hasLeft ? `<div class="row stock-card-actions" style="margin-top:0.5rem;flex-wrap:wrap;gap:0.35rem">
+        ${active ? `<button type="button" class="btn primary" data-draw-stock="${esc(lot.id)}">Log my meal</button>` : ""}
+        <button type="button" class="btn" data-stock-use="${esc(lot.id)}">Use (no log)</button>
+        <button type="button" class="btn" data-stock-discard="${esc(lot.id)}">Discard</button>
+      </div>` : ""}
     </article>`;
   };
   const lots = state.stock || [];
@@ -1415,10 +1440,7 @@ function stockView() {
   const activeRows = activeLots.map(lotCard).join("");
   const usedRows = usedLots.map(lotCard).join("");
   return el(`<div>
-    ${dataBackupBarHtml("stock")}
-    <div class="panel-toolbar row">
-      <button type="button" class="btn primary" id="stock-add">New batch</button>
-    </div>
+    ${dataBackupBarHtml("stock", { extra: `<button type="button" class="btn primary" id="stock-add">New batch</button>` })}
     <h2>Active (${activeLots.length})</h2>
     <div class="stock-list">${activeRows || `<p class="muted">Nothing left in the fridge</p>`}</div>
     <h2 style="margin-top:1.25rem">Used up (${usedLots.length})</h2>
@@ -1631,49 +1653,117 @@ function foodsView() {
   </article>`;
   }).join("");
   return el(`<div>
-    ${dataBackupBarHtml("foods")}
+    ${dataBackupBarHtml("foods", { extra: `<button type="button" class="btn primary" id="foods-add">Add food</button>` })}
     <div class="panel-toolbar row searchbar">
       <label class="field grow"><span>Search catalog</span><input id="foods-q" value="${esc(state.foodsQ || "")}" placeholder="pasta, chicken..."></label>
-      <button type="button" class="btn primary" id="foods-add">Add food</button>
     </div>
     <p class="muted" style="margin:0 0 0.65rem">${list.length} foods (per 100 g)</p>
     <div class="foods-catalog-list">${cards || `<p class="muted">No foods</p>`}</div>
   </div>`);
 }
 
+function weighInEnergy(w) {
+  const b = mergedKcalBudget(state.kcalBudget);
+  return energyFromInputs({
+    kg: w?.kg,
+    heightCm: b.height_cm,
+    ageYears: b.age_years,
+    sex: b.sex,
+  });
+}
+
 function weightView() {
   const latest = state.overview?.latest_weight;
   const weightsInPeriod = recordsInRange(state.weights, state.weightRange, resolveTodayDate(state));
-  const periodSelect = periodRangeSelectHtml("weight-range", state.weightRange, esc);
-  const rows = weightsInPeriod.slice().reverse().map((w) => `<tr class="clickable" data-open-weight="${esc(w.id)}">
+  const periodSelect = periodRangeSelectHtml("weight-range", state.weightRange, esc, { label: "" });
+  const rows = weightsInPeriod.slice().reverse().map((w) => {
+    const est = weighInEnergy(w);
+    return `<tr class="clickable" data-open-weight="${esc(w.id)}">
     <td class="mono">${esc(w.date)}</td>
     <td>${fmt(w.kg, 1)}</td>
+    <td class="mono">${est ? fmt(est.bmr, 0) : "-"}</td>
     <td>${w.rhr_bpm ?? ""}</td>
     <td>${w.protocol ? "yes" : ""}</td>
     <td>${esc(w.note || "")}</td>
-  </tr>`).join("");
+  </tr>`;
+  }).join("");
   const root = el(`<div>
-    ${dataBackupBarHtml("weight")}
-  ${weightChartSectionHtml(periodSelect)}
+    ${dataBackupBarHtml("weight", { extra: `<button type="button" class="btn primary" id="weight-add">Add weigh-in</button>` })}
+    <div class="weight-period-row">${periodSelect}</div>
+    ${weightChartSectionHtml()}
     <div class="panel-toolbar row" style="margin-top:0.65rem">
       <p class="muted" style="margin:0;flex:1 1 auto">Latest: ${latest ? `${fmt(latest.kg, 1)} kg on ${esc(latest.date)}` : "none"}</p>
-      <button type="button" class="btn primary" id="weight-add">Add weigh-in</button>
     </div>
     <div class="card" style="margin-top:0.65rem">
       <table>
-        <thead><tr><th>Date</th><th>kg</th><th>RHR</th><th>Protocol</th><th>Note</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="5" class="muted">No weigh-ins</td></tr>`}</tbody>
+        <thead><tr><th>Date</th><th>kg</th><th>BMR</th><th>RHR</th><th>Protocol</th><th>Note</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="6" class="muted">No weigh-ins</td></tr>`}</tbody>
       </table>
     </div>
   </div>`);
-  mountWeightChart(root.querySelector("[data-weight-chart]"), weightsInPeriod);
+  mountWeightChart(root.querySelector("[data-weight-chart]"), weightsInPeriod, {
+    bmrForKg: (kg) => weighInEnergy({ kg })?.bmr ?? null,
+  });
   return root;
+}
+
+function latestEnergyKg() {
+  const fromOv = Number(state.overview?.latest_weight?.kg);
+  if (fromOv > 0) return fromOv;
+  const w = (state.weights || []).find((row) => Number(row.kg) > 0);
+  return Number(w?.kg) || 0;
+}
+
+function latestEnergyKgLabel() {
+  const w = state.overview?.latest_weight;
+  if (w && Number(w.kg) > 0) {
+    return `${fmt(w.kg, 1)} kg on ${w.date}`;
+  }
+  return "";
+}
+
+function energyEstimateHtml(b, kg) {
+  const est = energyFromInputs({
+    kg,
+    heightCm: b.height_cm,
+    ageYears: b.age_years,
+    sex: b.sex,
+  });
+  if (!kg) {
+    return `<p class="muted" id="energy-estimate" style="margin:0.55rem 0 0">Add a weigh-in to compute daily burn.</p>`;
+  }
+  if (!est) {
+    return `<p class="muted" id="energy-estimate" style="margin:0.55rem 0 0">Fill sex, age, and height. Weight used: ${fmt(kg, 1)} kg.</p>`;
+  }
+  return `<p class="muted" id="energy-estimate" style="margin:0.55rem 0 0">
+    Using ${fmt(est.kg, 1)} kg: BMR ${fmt(est.bmr, 0)} kcal, sedentary ${fmt(est.sedentary, 0)} kcal/day.
+  </p>`;
 }
 
 function settingsView() {
   const b = mergedKcalBudget(state.kcalBudget);
+  const kg = latestEnergyKg();
+  const kgLine = latestEnergyKgLabel();
+  const sex = b.sex === "female" ? "female" : b.sex === "male" ? "male" : "";
   return el(`<div>
     <section class="card">
+      <h2>Sedentary energy</h2>
+      <p class="muted form-modal-hint" style="margin-top:0">Mifflin-St Jeor resting burn (BMR), then times 1.2 for a sedentary day (little or no exercise). Weight is your latest weigh-in.</p>
+      <div class="row settings-kcal-fields" style="flex-wrap:wrap;gap:0.65rem;margin-top:0.85rem">
+        <label class="field"><span>Sex</span>
+          <select id="set-sex">
+            <option value=""${sex ? "" : " selected"}>Select</option>
+            <option value="male"${sex === "male" ? " selected" : ""}>Male</option>
+            <option value="female"${sex === "female" ? " selected" : ""}>Female</option>
+          </select>
+        </label>
+        <label class="field"><span>Age (years)</span><input id="set-age" type="number" min="12" max="120" step="1" value="${esc(b.age_years ? String(b.age_years) : "")}"></label>
+        <label class="field"><span>Height (cm)</span><input id="set-height" type="number" min="80" max="250" step="0.5" value="${esc(b.height_cm ? String(b.height_cm) : "")}"></label>
+      </div>
+      <p class="muted" style="font-size:0.82rem;margin:0.55rem 0 0">${kgLine ? `Latest weigh-in: ${esc(kgLine)}` : "No weigh-in yet."}</p>
+      ${energyEstimateHtml(b, kg)}
+    </section>
+    <section class="card" style="margin-top:0.85rem">
       <h2>Daily kcal bands</h2>
       <p class="muted form-modal-hint" style="margin-top:0">The colored strip on the left of Today and each day card uses catalog day totals.</p>
       <ul class="kcal-band-legend muted">
@@ -1768,6 +1858,9 @@ async function saveKcalBudgetFromForm() {
     legacy_diff_green_lt: Number(document.getElementById("set-diff-green")?.value),
     legacy_diff_yellow_lt: Number(document.getElementById("set-diff-yellow")?.value),
     legacy_diff_orange_lt: Number(document.getElementById("set-diff-orange")?.value),
+    sex: document.getElementById("set-sex")?.value || "",
+    age_years: Number(document.getElementById("set-age")?.value) || 0,
+    height_cm: Number(document.getElementById("set-height")?.value) || 0,
   };
   const data = await api("/settings", { method: "PUT", body: JSON.stringify(body) });
   state.kcalBudget = mergedKcalBudget(data.settings);
@@ -2080,12 +2173,10 @@ function bind() {
       adjustStock(b.dataset.stockDiscard, "discarded").catch((e) => toast(e.message));
     });
   });
-  document.querySelectorAll("[data-edit-stock]").forEach((b) => {
-    b.addEventListener("click", () => beginEditStockBatch(b.dataset.editStock));
-  });
-  document.querySelectorAll("[data-del-stock]").forEach((b) => {
-    b.addEventListener("click", () => {
-      deleteStock(b.dataset.delStock).catch((e) => toast(e.message));
+  document.querySelectorAll("[data-open-stock]").forEach((card) => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("button, label, input, a, .stock-card-actions")) return;
+      beginEditStockBatch(card.dataset.openStock);
     });
   });
   document.getElementById("foods-add")?.addEventListener("click", () => openFoodForm().catch((e) => toast(e.message)));
@@ -2095,6 +2186,22 @@ function bind() {
 
   document.getElementById("settings-save")?.addEventListener("click", () => {
     saveKcalBudgetFromForm().catch((e) => toast(e.message));
+  });
+  const refreshEnergyHint = () => {
+    const elHint = document.getElementById("energy-estimate");
+    if (!elHint) return;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = energyEstimateHtml({
+      sex: document.getElementById("set-sex")?.value || "",
+      age_years: Number(document.getElementById("set-age")?.value) || 0,
+      height_cm: Number(document.getElementById("set-height")?.value) || 0,
+    }, latestEnergyKg());
+    const next = wrap.firstElementChild;
+    if (next) elHint.replaceWith(next);
+  };
+  ["set-sex", "set-age", "set-height"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", refreshEnergyHint);
+    document.getElementById(id)?.addEventListener("change", refreshEnergyHint);
   });
   document.getElementById("settings-repair-days")?.addEventListener("click", async () => {
     const ok = await confirmModal({
@@ -2114,7 +2221,13 @@ function bind() {
     }
   });
   document.getElementById("settings-reset")?.addEventListener("click", () => {
-    api("/settings", { method: "PUT", body: JSON.stringify(DEFAULT_KCAL_BUDGET) })
+    const cur = mergedKcalBudget(state.kcalBudget);
+    api("/settings", { method: "PUT", body: JSON.stringify({
+      ...DEFAULT_KCAL_BUDGET,
+      sex: cur.sex || "",
+      age_years: cur.age_years || 0,
+      height_cm: cur.height_cm || 0,
+    }) })
       .then((data) => {
         state.kcalBudget = mergedKcalBudget(data.settings);
         if (state.overview) state.overview.settings = data.settings;
@@ -2635,36 +2748,15 @@ function askStockAction(lot, kind) {
 }
 
 function confirmStockDelete(lot) {
-  return new Promise((resolve) => {
-    if (!lot) {
-      resolve(false);
-      return;
-    }
-    const left = Number(lot.remaining_grams) || 0;
-    const batch = Number(lot.batch_grams) || 0;
-    const qty = batch > 0 ? `${fmt(left, 0)}/${fmt(batch, 0)} g` : `${fmt(left, 0)} g`;
-    const overlay = el(`<div class="stock-dialog-overlay" role="dialog" aria-modal="true">
-      <div class="stock-dialog">
-        <h3>Delete batch?</h3>
-        <p class="stock-dialog-sub">${esc(lot.name)} <span class="mono">(${qty})</span></p>
-        <p class="muted" style="font-size:0.82rem;margin:0 0 0.75rem">Removes the lot and its usage history. This cannot be undone.</p>
-        <div class="row">
-          <button type="button" class="btn" data-sd-cancel>Cancel</button>
-          <button type="button" class="btn danger" data-sd-delete>Delete</button>
-        </div>
-      </div>
-    </div>`);
-    const close = (ok) => {
-      overlay.remove();
-      resolve(ok);
-    };
-    overlay.querySelector("[data-sd-cancel]")?.addEventListener("click", () => close(false));
-    overlay.querySelector("[data-sd-delete]")?.addEventListener("click", () => close(true));
-    overlay.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") close(false);
-    });
-    document.body.appendChild(overlay);
-    overlay.querySelector("[data-sd-cancel]")?.focus();
+  if (!lot) return Promise.resolve(false);
+  const left = Number(lot.remaining_grams) || 0;
+  const batch = Number(lot.batch_grams) || 0;
+  const qty = batch > 0 ? `${fmt(left, 0)}/${fmt(batch, 0)} g` : `${fmt(left, 0)} g`;
+  return confirmModal({
+    title: "Delete this batch?",
+    message: `<p class="muted" style="margin:0">${esc(lot.name)} <span class="mono">(${esc(qty)})</span></p><p class="muted" style="margin:0.5rem 0 0">Removes the lot and its usage history. This cannot be undone.</p>`,
+    confirmLabel: "Delete",
+    danger: true,
   });
 }
 
@@ -2685,8 +2777,13 @@ async function drawStock(id) {
 async function deleteStock(id) {
   const lot = state.stock.find((x) => x.id === id);
   const ok = await confirmStockDelete(lot);
-  if (!ok) return;
-  await api(`/stock/${id}`, { method: "DELETE" });
+  if (!ok) return false;
+  try {
+    await api(`/stock/${id}`, { method: "DELETE" });
+  } catch (e) {
+    toast(e.message);
+    return false;
+  }
   if (state.stockForm?.id === id) {
     state.stockForm = emptyStockForm();
     delete state.mealDraft?.stock;
@@ -2694,6 +2791,7 @@ async function deleteStock(id) {
   await loadStock();
   toast("Batch deleted");
   render();
+  return true;
 }
 
 async function toggleStockActive(id, active) {
