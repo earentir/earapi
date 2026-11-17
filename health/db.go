@@ -161,6 +161,11 @@ func migrateHealthDB(db *sql.DB) error {
 			return err
 		}
 	}
+	if !tableHasColumn(db, "user_settings", "sedentary_discount_percent") {
+		if _, err := db.Exec(`ALTER TABLE user_settings ADD COLUMN sedentary_discount_percent REAL NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
 	for col, def := range map[string]float64{
 		"soft_low_sodium_mg":    DefaultSoftLowSodiumMg,
 		"soft_high_sodium_mg":   DefaultSoftHighSodiumMg,

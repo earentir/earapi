@@ -17,4 +17,7 @@ func TestMifflinStJeorBMR(t *testing.T) {
 	if _, ok := MifflinStJeorBMR(90, 180, 40, ""); ok {
 		t.Fatal("empty sex should fail")
 	}
+	if got := sedentaryTDEEWithDiscount(1830, 50); got != 1098 {
+		t.Fatalf("50%% discount sedentary %v want 1098", got)
+	}
 }

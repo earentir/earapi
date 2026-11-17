@@ -15,7 +15,7 @@ type KcalBudgetSettings struct {
 	SoftLowSodiumMg   float64 `json:"soft_low_sodium_mg"`
 	SoftHighSodiumMg  float64 `json:"soft_high_sodium_mg"`
 	CeilingSodiumMg   float64 `json:"ceiling_sodium_mg"`
-	MealMarginPercent float64 `json:"meal_margin_percent"` // +% on each meal slot total (lunch/dinner/snack), not per line
+	MealMarginPercent float64 `json:"meal_margin_percent"` // +% on catalog day total (lunch+dinner+snack), once — not per slot or line
 	// Legacy diff bands: dot colors use |catalog − markdown| per nutrient.
 	LegacyDiffGreenLt  float64 `json:"legacy_diff_green_lt"`  // delta < this → green
 	LegacyDiffYellowLt float64 `json:"legacy_diff_yellow_lt"` // delta < this → yellow
@@ -24,6 +24,8 @@ type KcalBudgetSettings struct {
 	Sex      string  `json:"sex,omitempty"`       // male | female
 	AgeYears int     `json:"age_years,omitempty"`
 	HeightCm float64 `json:"height_cm,omitempty"`
+	// SedentaryDiscountPercent lowers computed sedentary TDEE by this much (0–50).
+	SedentaryDiscountPercent float64 `json:"sedentary_discount_percent,omitempty"`
 	// Computed on GET from latest weigh-in (not stored).
 	BmrKcal        float64 `json:"bmr_kcal,omitempty"`
 	SedentaryKcal  float64 `json:"sedentary_kcal,omitempty"`
@@ -99,6 +101,13 @@ func (s KcalBudgetSettings) normalized() KcalBudgetSettings {
 		s.CeilingSodiumMg = d.CeilingSodiumMg
 	}
 	s.Sex = normalizeSex(s.Sex)
+	if s.SedentaryDiscountPercent < 0 || math.IsNaN(s.SedentaryDiscountPercent) {
+		s.SedentaryDiscountPercent = 0
+	}
+	if s.SedentaryDiscountPercent > 50 {
+		s.SedentaryDiscountPercent = 50
+	}
+	s.SedentaryDiscountPercent = math.Round(s.SedentaryDiscountPercent)
 	s.BmrKcal = 0
 	s.SedentaryKcal = 0
 	s.EnergyWeightKg = 0

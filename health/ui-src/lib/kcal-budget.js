@@ -13,6 +13,7 @@ export const DEFAULT_KCAL_BUDGET = {
   sex: "",
   age_years: 0,
   height_cm: 0,
+  sedentary_discount_percent: 0,
 };
 
 export function mergedKcalBudget(raw) {
@@ -40,6 +41,11 @@ export function mergedKcalBudget(raw) {
       : String(raw.sex || "").trim().toLowerCase() === "male" ? "male" : "",
     age_years: Number.isFinite(age) && age > 0 ? Math.round(age) : 0,
     height_cm: Number.isFinite(height) && height > 0 ? height : 0,
+    sedentary_discount_percent: (() => {
+      const n = Number(raw.sedentary_discount_percent);
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      return Math.min(50, Math.round(n));
+    })(),
   };
   if (
     !(merged.legacy_diff_green_lt < merged.legacy_diff_yellow_lt &&

@@ -42,10 +42,22 @@ func MifflinStJeorBMR(kg, heightCm float64, ageYears int, sex string) (float64, 
 }
 
 func sedentaryTDEE(bmr float64) float64 {
+	return sedentaryTDEEWithDiscount(bmr, 0)
+}
+
+func sedentaryTDEEWithDiscount(bmr, discountPercent float64) float64 {
 	if bmr <= 0 {
 		return 0
 	}
-	return math.Round(bmr * SedentaryPAL)
+	disc := discountPercent
+	if disc < 0 || math.IsNaN(disc) {
+		disc = 0
+	}
+	if disc > 50 {
+		disc = 50
+	}
+	base := bmr * SedentaryPAL
+	return math.Round(base * (1 - disc/100))
 }
 
 func attachEnergyEstimate(s *KcalBudgetSettings, kg float64) {
@@ -60,7 +72,7 @@ func attachEnergyEstimate(s *KcalBudgetSettings, kg float64) {
 		return
 	}
 	s.BmrKcal = bmr
-	s.SedentaryKcal = sedentaryTDEE(bmr)
+	s.SedentaryKcal = sedentaryTDEEWithDiscount(bmr, s.SedentaryDiscountPercent)
 	s.EnergyWeightKg = kg
 }
 

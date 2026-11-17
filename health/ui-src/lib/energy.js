@@ -20,16 +20,26 @@ export function mifflinStJeorBmr({ kg, heightCm, ageYears, sex }) {
   return Math.round(bmr);
 }
 
-export function sedentaryTdee(bmr) {
-  const n = Number(bmr);
-  if (!(n > 0)) return null;
-  return Math.round(n * SEDENTARY_PAL);
+export function clampSedentaryDiscount(p) {
+  const n = Number(p);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(50, Math.round(n));
 }
 
-export function energyFromInputs({ kg, heightCm, ageYears, sex }) {
+export function sedentaryTdee(bmr, discountPercent = 0) {
+  const n = Number(bmr);
+  if (!(n > 0)) return null;
+  const disc = clampSedentaryDiscount(discountPercent);
+  return Math.round(n * SEDENTARY_PAL * (1 - disc / 100));
+}
+
+export function energyFromInputs({ kg, heightCm, ageYears, sex, sedentary_discount_percent: discount }) {
   const bmr = mifflinStJeorBmr({ kg, heightCm, ageYears, sex });
   if (bmr == null) return null;
-  return { bmr, sedentary: sedentaryTdee(bmr), kg: Number(kg) };
+  const disc = clampSedentaryDiscount(discount);
+  const sedentary = sedentaryTdee(bmr, disc);
+  const sedentaryBase = sedentaryTdee(bmr, 0);
+  return { bmr, sedentary, sedentaryBase, sedentaryDiscountPercent: disc, kg: Number(kg) };
 }
 
 /** Wishnofsky: 7700 kcal ≈ 1 kg body mass. */

@@ -11,11 +11,11 @@ func (s *Store) GetKcalBudgetSettings() KcalBudgetSettings {
 		soft_low_sodium_mg, soft_high_sodium_mg, ceiling_sodium_mg,
 		meal_margin_percent,
 		legacy_diff_green_lt, legacy_diff_yellow_lt, legacy_diff_orange_lt,
-		sex, age_years, height_cm FROM user_settings WHERE user_id = ?`, s.userID)
-	var low, high, gain, naLow, naHigh, naCeil, margin, diffG, diffY, diffO, height sql.NullFloat64
+		sex, age_years, height_cm, sedentary_discount_percent FROM user_settings WHERE user_id = ?`, s.userID)
+	var low, high, gain, naLow, naHigh, naCeil, margin, diffG, diffY, diffO, height, sedDisc sql.NullFloat64
 	var sex sql.NullString
 	var age sql.NullInt64
-	err := row.Scan(&low, &high, &gain, &naLow, &naHigh, &naCeil, &margin, &diffG, &diffY, &diffO, &sex, &age, &height)
+	err := row.Scan(&low, &high, &gain, &naLow, &naHigh, &naCeil, &margin, &diffG, &diffY, &diffO, &sex, &age, &height, &sedDisc)
 	if err == sql.ErrNoRows {
 		_ = s.ensureKcalBudgetDefaults()
 		return def
@@ -63,6 +63,9 @@ func (s *Store) GetKcalBudgetSettings() KcalBudgetSettings {
 	if height.Valid && height.Float64 > 0 {
 		out.HeightCm = height.Float64
 	}
+	if sedDisc.Valid && !math.IsNaN(sedDisc.Float64) && sedDisc.Float64 >= 0 {
+		out.SedentaryDiscountPercent = sedDisc.Float64
+	}
 	return out.normalized()
 }
 
@@ -83,8 +86,8 @@ func (s *Store) PutKcalBudgetSettings(in KcalBudgetSettings) (KcalBudgetSettings
 			soft_low_sodium_mg, soft_high_sodium_mg, ceiling_sodium_mg,
 			meal_margin_percent,
 			legacy_diff_green_lt, legacy_diff_yellow_lt, legacy_diff_orange_lt,
-			sex, age_years, height_cm)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			sex, age_years, height_cm, sedentary_discount_percent)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
 		  soft_low_kcal=excluded.soft_low_kcal,
 		  soft_high_kcal=excluded.soft_high_kcal,
@@ -98,12 +101,13 @@ func (s *Store) PutKcalBudgetSettings(in KcalBudgetSettings) (KcalBudgetSettings
 		  legacy_diff_orange_lt=excluded.legacy_diff_orange_lt,
 		  sex=excluded.sex,
 		  age_years=excluded.age_years,
-		  height_cm=excluded.height_cm`,
+		  height_cm=excluded.height_cm,
+		  sedentary_discount_percent=excluded.sedentary_discount_percent`,
 		s.userID, in.SoftLowKcal, in.SoftHighKcal, in.GainMinKcal,
 		in.SoftLowSodiumMg, in.SoftHighSodiumMg, in.CeilingSodiumMg,
 		in.MealMarginPercent,
 		in.LegacyDiffGreenLt, in.LegacyDiffYellowLt, in.LegacyDiffOrangeLt,
-		in.Sex, in.AgeYears, in.HeightCm)
+		in.Sex, in.AgeYears, in.HeightCm, in.SedentaryDiscountPercent)
 	if err != nil {
 		return KcalBudgetSettings{}, err
 	}
