@@ -24,6 +24,9 @@ type Food struct {
 	SugarsGPer100g  *float64 `json:"sugars_g_per_100g,omitempty"`
 	ProteinGPer100g *float64 `json:"protein_g_per_100g,omitempty"`
 	SaltGPer100g    *float64 `json:"salt_g_per_100g,omitempty"`
+	LabelGrams      *float64 `json:"label_grams,omitempty"`       // pack/serving reference g (meal autocomplete)
+	LabelKcal       *float64 `json:"label_kcal,omitempty"`        // kcal for LabelGrams (as printed)
+	LabelSodiumMg   *float64 `json:"label_sodium_mg,omitempty"`   // sodium mg for LabelGrams (as printed / from salt)
 	Notes           string   `json:"notes,omitempty"`
 }
 

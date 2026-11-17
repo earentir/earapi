@@ -383,7 +383,8 @@ func (s *Store) ListFoods() []Food {
 
 func (s *Store) listFoodsUnlocked() []Food {
 	rows, err := s.db.Query(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes,
-		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g
+		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g,
+		label_grams, label_kcal, label_sodium_mg
 		FROM foods WHERE user_id = ? ORDER BY name`, s.userID)
 	if err != nil {
 		return nil
@@ -405,9 +406,9 @@ func scanFoods(rows *sql.Rows) []Food {
 
 func scanFoodRow(rows *sql.Rows) (Food, bool) {
 	var f Food
-	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt sql.NullFloat64
+	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt, labelG, labelKcal, labelSod sql.NullFloat64
 	if err := rows.Scan(&f.ID, &f.Name, &kcal, &sod, &f.Notes,
-		&kj, &fat, &sat, &carb, &sugar, &protein, &salt); err != nil {
+		&kj, &fat, &sat, &carb, &sugar, &protein, &salt, &labelG, &labelKcal, &labelSod); err != nil {
 		return Food{}, false
 	}
 	assignNullFloat(&f.KcalPer100g, kcal)
@@ -419,6 +420,9 @@ func scanFoodRow(rows *sql.Rows) (Food, bool) {
 	assignNullFloat(&f.SugarsGPer100g, sugar)
 	assignNullFloat(&f.ProteinGPer100g, protein)
 	assignNullFloat(&f.SaltGPer100g, salt)
+	assignNullFloat(&f.LabelGrams, labelG)
+	assignNullFloat(&f.LabelKcal, labelKcal)
+	assignNullFloat(&f.LabelSodiumMg, labelSod)
 	return f, true
 }
 
@@ -541,6 +545,15 @@ func applyFoodPatch(cur *Food, patch Food) {
 	if patch.SaltGPer100g != nil {
 		cur.SaltGPer100g = patch.SaltGPer100g
 	}
+	if patch.LabelGrams != nil {
+		cur.LabelGrams = patch.LabelGrams
+	}
+	if patch.LabelKcal != nil {
+		cur.LabelKcal = patch.LabelKcal
+	}
+	if patch.LabelSodiumMg != nil {
+		cur.LabelSodiumMg = patch.LabelSodiumMg
+	}
 	if patch.Notes != "" {
 		cur.Notes = patch.Notes
 	}
@@ -626,12 +639,13 @@ func (s *Store) FoodCount() int {
 
 func (s *Store) foodByIDUnlocked(id string) (*Food, bool) {
 	row := s.db.QueryRow(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes,
-		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g
+		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g,
+		label_grams, label_kcal, label_sodium_mg
 		FROM foods WHERE user_id = ? AND id = ?`, s.userID, id)
 	var f Food
-	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt sql.NullFloat64
+	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt, labelG, labelKcal, labelSod sql.NullFloat64
 	if err := row.Scan(&f.ID, &f.Name, &kcal, &sod, &f.Notes,
-		&kj, &fat, &sat, &carb, &sugar, &protein, &salt); err != nil {
+		&kj, &fat, &sat, &carb, &sugar, &protein, &salt, &labelG, &labelKcal, &labelSod); err != nil {
 		return nil, false
 	}
 	assignNullFloat(&f.KcalPer100g, kcal)
@@ -643,6 +657,9 @@ func (s *Store) foodByIDUnlocked(id string) (*Food, bool) {
 	assignNullFloat(&f.SugarsGPer100g, sugar)
 	assignNullFloat(&f.ProteinGPer100g, protein)
 	assignNullFloat(&f.SaltGPer100g, salt)
+	assignNullFloat(&f.LabelGrams, labelG)
+	assignNullFloat(&f.LabelKcal, labelKcal)
+	assignNullFloat(&f.LabelSodiumMg, labelSod)
 	return &f, true
 }
 
@@ -1295,11 +1312,13 @@ func insertWeighInUser(exec sqlExec, userID string, w WeighIn) error {
 
 func execFoodUpdate(exec sqlExec, userID string, f Food) error {
 	_, err := exec.Exec(`UPDATE foods SET name=?, kcal_per_100g=?, sodium_mg_per_100g=?, notes=?,
-		energy_kj_per_100g=?, fat_g_per_100g=?, saturates_g_per_100g=?, carbs_g_per_100g=?, sugars_g_per_100g=?, protein_g_per_100g=?, salt_g_per_100g=?
+		energy_kj_per_100g=?, fat_g_per_100g=?, saturates_g_per_100g=?, carbs_g_per_100g=?, sugars_g_per_100g=?, protein_g_per_100g=?, salt_g_per_100g=?,
+		label_grams=?, label_kcal=?, label_sodium_mg=?
 		WHERE user_id = ? AND id=?`,
 		f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes,
 		nullFloat(f.EnergyKjPer100g), nullFloat(f.FatGPer100g), nullFloat(f.SaturatesGPer100g),
 		nullFloat(f.CarbsGPer100g), nullFloat(f.SugarsGPer100g), nullFloat(f.ProteinGPer100g), nullFloat(f.SaltGPer100g),
+		nullFloat(f.LabelGrams), nullFloat(f.LabelKcal), nullFloat(f.LabelSodiumMg),
 		userID, f.ID)
 	return err
 }
@@ -1307,11 +1326,13 @@ func execFoodUpdate(exec sqlExec, userID string, f Food) error {
 func insertFoodUser(exec sqlExec, userID string, f Food) error {
 	NormalizeFoodLabel(&f)
 	_, err := exec.Exec(`INSERT INTO foods (user_id, id, name, kcal_per_100g, sodium_mg_per_100g, notes,
-		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g,
+		label_grams, label_kcal, label_sodium_mg)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		userID, f.ID, f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes,
 		nullFloat(f.EnergyKjPer100g), nullFloat(f.FatGPer100g), nullFloat(f.SaturatesGPer100g),
-		nullFloat(f.CarbsGPer100g), nullFloat(f.SugarsGPer100g), nullFloat(f.ProteinGPer100g), nullFloat(f.SaltGPer100g))
+		nullFloat(f.CarbsGPer100g), nullFloat(f.SugarsGPer100g), nullFloat(f.ProteinGPer100g), nullFloat(f.SaltGPer100g),
+		nullFloat(f.LabelGrams), nullFloat(f.LabelKcal), nullFloat(f.LabelSodiumMg))
 	return err
 }
 

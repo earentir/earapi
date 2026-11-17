@@ -190,6 +190,13 @@ func migrateHealthDB(db *sql.DB) error {
 			}
 		}
 	}
+	for _, col := range []string{"label_grams", "label_kcal", "label_sodium_mg"} {
+		if !tableHasColumn(db, "foods", col) {
+			if _, err := db.Exec(`ALTER TABLE foods ADD COLUMN ` + col + ` REAL`); err != nil {
+				return err
+			}
+		}
+	}
 	var userVersion int
 	_ = db.QueryRow(`PRAGMA user_version`).Scan(&userVersion)
 	const mealItemCountRepairVersion = 1
