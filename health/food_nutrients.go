@@ -31,6 +31,30 @@ func parseNutrientsFromNotes(notes string) (kcal, sod *float64) {
 	return kcal, sod
 }
 
+func kcalPer100FromLabel(f *Food) *float64 {
+	if f == nil || f.LabelGrams == nil || f.LabelKcal == nil {
+		return nil
+	}
+	g, k := *f.LabelGrams, *f.LabelKcal
+	if g <= 0 || k <= 0 {
+		return nil
+	}
+	v := k / g * 100
+	return &v
+}
+
+func sodPer100FromLabel(f *Food) *float64 {
+	if f == nil || f.LabelGrams == nil || f.LabelSodiumMg == nil {
+		return nil
+	}
+	g, s := *f.LabelGrams, *f.LabelSodiumMg
+	if g <= 0 || s < 0 {
+		return nil
+	}
+	v := s / g * 100
+	return &v
+}
+
 func nutrientsForFood(f *Food) (kcal, sod *float64) {
 	if f == nil {
 		return nil, nil
@@ -42,6 +66,12 @@ func nutrientsForFood(f *Food) (kcal, sod *float64) {
 		return &z, &sodPer100
 	}
 	kcal, sod = f.KcalPer100g, f.SodiumMgPer100g
+	if lk := kcalPer100FromLabel(f); lk != nil {
+		kcal = lk
+	}
+	if ls := sodPer100FromLabel(f); ls != nil {
+		sod = ls
+	}
 	nk, ns := parseNutrientsFromNotes(f.Notes)
 	if kcal == nil {
 		kcal = nk

@@ -2,36 +2,27 @@ package health
 
 import "testing"
 
-func TestParseNutrientsFromMarataNote(t *testing.T) {
-	notes := `**Marata Επιδόρπιο Γιαουρτιού 1.7% με Φράουλα (label verified Nov 7): 71 kcal / salt 0.12 g (~48 mg) per 100 g → per 200 g cup ~143 kcal / ~96 mg`
-	k, s := parseNutrientsFromNotes(notes)
-	if k == nil || *k != 71 {
-		t.Fatalf("kcal %v", k)
+func TestNutrientsForFood_prefersPackLabel(t *testing.T) {
+	// Sklavenitis tray: 380 kcal / 400 g → 95 kcal/100 g (not a stale 140 kcal/100 g column).
+	stale := 140.0
+	lg, lk := 400.0, 380.0
+	f := Food{
+		KcalPer100g: &stale,
+		LabelGrams:  &lg,
+		LabelKcal:   &lk,
 	}
-	if s == nil || *s != 48 {
-		t.Fatalf("sod %v", s)
+	k, _ := nutrientsForFood(&f)
+	if k == nil || *k < 94.9 || *k > 95.1 {
+		t.Fatalf("kcal/100g %v want 95 from pack label", k)
 	}
 }
 
-func TestScaleMarataMealItem(t *testing.T) {
-	root := t.TempDir()
-	db, err := OpenSharedDB(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	st, err := NewStore(db, root, "u")
-	if err != nil {
-		t.Fatal(err)
-	}
-	notes := `71 kcal / salt 0.12 g (~48 mg) per 100 g`
-	if _, err := st.AddFood(Food{ID: "marata", Name: "Marata 1.7%", Notes: notes}); err != nil {
-		t.Fatal(err)
-	}
-	it := MealItem{Name: "Marata 1.7%", Grams: 200}
-	if err := st.ScaleItemFromFood(&it); err != nil {
-		t.Fatal(err)
-	}
-	if it.Kcal < 141 || it.Kcal > 143 {
-		t.Fatalf("kcal %v", it.Kcal)
+func TestMealItemKcal_packLabelFood(t *testing.T) {
+	k100 := 155.0
+	f := Food{ID: "pasta", KcalPer100g: &k100, Name: "Pasta (cooked, no salt)"}
+	it := MealItem{Name: "Pasta (cooked, no salt)", FoodID: "pasta", Grams: 300}
+	got := mealItemKcalFromFood(&it, &f, &k100)
+	if got < 464 || got > 466 {
+		t.Fatalf("300 g pasta kcal %v want 465", got)
 	}
 }

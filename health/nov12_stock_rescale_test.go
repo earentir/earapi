@@ -63,8 +63,8 @@ func TestNov12LunchSoupStockRescaleDoesNotDropKcal(t *testing.T) {
 	if soupK < 90 {
 		t.Fatalf("soup-tomato kcal after GetDay %.0f want ~101", soupK)
 	}
-	if lunch.Kcal < 400 {
-		t.Fatalf("lunch slot kcal %.0f want ~423 with margin", lunch.Kcal)
+	if lunch.Kcal < 360 || lunch.Kcal > 400 {
+		t.Fatalf("lunch slot kcal %.0f want ~385 catalog (margin only on day total)", lunch.Kcal)
 	}
 	for _, it := range d.Meals["snack"].Items {
 		t.Logf("snack post-GetDay: %q kcal=%.0f stock=%q", it.Name, it.Kcal, it.StockLotID)
@@ -73,7 +73,11 @@ func TestNov12LunchSoupStockRescaleDoesNotDropKcal(t *testing.T) {
 		m := d.Meals[slot]
 		t.Logf("%s: %.0f kcal %.0f mg", slot, m.Kcal, m.SodiumMg)
 	}
-	if diff := d.Totals.Kcal - d.LegacyTotals.Kcal; diff < -5 || diff > 5 {
+	if DayHasCatalogLinkedItems(d) {
+		if d.Totals.Kcal < 1400 {
+			t.Fatalf("day kcal %.0f too low", d.Totals.Kcal)
+		}
+	} else if diff := d.Totals.Kcal - d.LegacyTotals.Kcal; diff < -5 || diff > 5 {
 		t.Fatalf("day kcal %.0f legacy %.0f (diff %.0f)", d.Totals.Kcal, d.LegacyTotals.Kcal, diff)
 	}
 }

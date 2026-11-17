@@ -19,6 +19,9 @@ func applyMealItemNoteMacros(it *MealItem) {
 	if it == nil || it.Grams <= 0 {
 		return
 	}
+	if strings.TrimSpace(it.FoodID) != "" || strings.TrimSpace(it.StockLotID) != "" {
+		return
+	}
 	note := strings.TrimSpace(it.Note)
 	if note == "" {
 		return
@@ -58,6 +61,57 @@ func scaleMealItemMacros(it *MealItem, factor float64) {
 	}
 	for i := range it.Parts {
 		scaleMealItemMacros(&it.Parts[i], factor)
+	}
+}
+
+func rollUpDishMacrosFromParts(it *MealItem) {
+	if it == nil || len(it.Parts) == 0 {
+		return
+	}
+	var batch, k, n float64
+	for i := range it.Parts {
+		p := &it.Parts[i]
+		batch += p.Grams
+		k += p.Kcal
+		n += p.SodiumMg
+	}
+	factor := 1.0
+	if batch <= 0 {
+		it.Grams = 0
+		it.Kcal = 0
+		it.SodiumMg = 0
+		return
+	}
+	eaten := it.Grams
+	if eaten <= 0 || eaten >= batch-0.01 {
+		it.Grams = batch
+	} else {
+		factor = eaten / batch
+	}
+	it.Kcal = k * factor
+	it.SodiumMg = n * factor
+}
+
+// scaleMealItemMacrosRespectingCatalogLinks stretches only name-only / unlinked lines (markdown calibration).
+func scaleMealItemMacrosRespectingCatalogLinks(it *MealItem, factor float64) {
+	if it == nil || factor <= 0 || math.Abs(factor-1) < 0.005 {
+		return
+	}
+	if len(it.Parts) > 0 {
+		for i := range it.Parts {
+			scaleMealItemMacrosRespectingCatalogLinks(&it.Parts[i], factor)
+		}
+		rollUpDishMacrosFromParts(it)
+		return
+	}
+	if strings.TrimSpace(it.FoodID) != "" || strings.TrimSpace(it.StockLotID) != "" {
+		return
+	}
+	if it.Kcal > 0 {
+		it.Kcal *= factor
+	}
+	if it.SodiumMg > 0 {
+		it.SodiumMg *= factor
 	}
 }
 
@@ -104,13 +158,10 @@ func catalogDayKcalBeforeStore(d *Day, marginPercent float64) float64 {
 		}
 		RecomputeMealSlotTotalsFromItems(&m)
 		d.Meals[slot] = m
-		k := m.Kcal
-		if ShouldApplyMealSlotMargin(&m, marginPercent) {
-			k = math.Round(k * (1 + marginPercent/100))
-		}
-		dayKcal += k
+		dayKcal += m.Kcal
 	}
-	return dayKcal
+	totK, _ := ApplyDayMarginTotals(dayKcal, 0, marginPercent)
+	return totK
 }
 
 // repairZeroKcalSlotsFromRaw rebuilds a slot from its markdown total when catalog scaling zeroed lines.
@@ -136,8 +187,7 @@ func repairZeroKcalSlotsFromRaw(d *Day) {
 	}
 }
 
-// CalibrateMealSlotsFromRawTotals scales item lines so each slot’s catalog total matches the
-// handwritten **~mg / ~kcal** (or margined) total in the meal cell raw text.
+// CalibrateMealSlotsFromRawTotals scales unlinked item lines to match markdown **~mg / ~kcal** (legacy import only; not used on live days).
 func CalibrateMealSlotsFromRawTotals(d *Day, marginPercent float64) {
 	if d == nil || d.Meals == nil {
 		return
@@ -153,24 +203,13 @@ func CalibrateMealSlotsFromRawTotals(d *Day, marginPercent float64) {
 		}
 		RecomputeMealSlotTotalsFromItems(&m)
 		catalogSlot := m.Kcal
-		if ShouldApplyMealSlotMargin(&m, marginPercent) {
-			catalogSlot = m.Kcal * (1 + marginPercent/100)
-		}
 		if catalogSlot <= 0 {
 			d.Meals[slot] = m
 			continue
 		}
-		// Today UI: trust per-item catalog math when markdown slot total is an obvious stale low (mg/kcal column order varies).
-		const staleSlotKcal = 150
 		if MealHasCatalogLinkedItems(m) {
-			staleLeg := legKcal
-			if legSod > 0 && legSod < staleSlotKcal && (staleLeg <= 0 || legSod < staleLeg) {
-				staleLeg = legSod
-			}
-			if staleLeg > 0 && staleLeg < staleSlotKcal && catalogSlot > staleLeg*1.02 {
-				d.Meals[slot] = m
-				continue
-			}
+			d.Meals[slot] = m
+			continue
 		}
 		if legKcal <= 0 {
 			d.Meals[slot] = m
@@ -182,24 +221,23 @@ func CalibrateMealSlotsFromRawTotals(d *Day, marginPercent float64) {
 			continue
 		}
 		for i := range m.Items {
-			scaleMealItemMacros(&m.Items[i], f)
+			scaleMealItemMacrosRespectingCatalogLinks(&m.Items[i], f)
 		}
 		RecomputeMealSlotTotalsFromItems(&m)
 		d.Meals[slot] = m
 	}
 }
 
-// CalibrateDayTotalsFromLegacy scales all meal lines when slot-level calibration still misses the day column.
+// CalibrateDayTotalsFromLegacy scales unlinked lines to match day legacy column (legacy import only; not used on live days).
 func CalibrateDayTotalsFromLegacy(d *Day, marginPercent float64) {
 	if d == nil || d.LegacyTotals.Kcal <= 0 {
 		return
 	}
-	dayKcal := catalogDayKcalBeforeStore(d, marginPercent)
-	if dayKcal <= 0 {
+	if DayHasCatalogLinkedItems(d) {
 		return
 	}
-	const staleDayKcal = 200
-	if DayHasCatalogLinkedItems(d) && d.LegacyTotals.Kcal < staleDayKcal && dayKcal > d.LegacyTotals.Kcal*1.5 {
+	dayKcal := catalogDayKcalBeforeStore(d, marginPercent)
+	if dayKcal <= 0 {
 		return
 	}
 	f := d.LegacyTotals.Kcal / dayKcal
@@ -207,8 +245,11 @@ func CalibrateDayTotalsFromLegacy(d *Day, marginPercent float64) {
 		return
 	}
 	for slot := range d.Meals {
-		for i := range d.Meals[slot].Items {
-			scaleMealItemMacros(&d.Meals[slot].Items[i], f)
+		m := d.Meals[slot]
+		for i := range m.Items {
+			scaleMealItemMacrosRespectingCatalogLinks(&m.Items[i], f)
 		}
+		RecomputeMealSlotTotalsFromItems(&m)
+		d.Meals[slot] = m
 	}
 }

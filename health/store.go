@@ -137,8 +137,6 @@ func (s *Store) ReplaceImported(mdDir string, weights []WeighIn, foods []Food, d
 		ensureMealSlotFallbackItems(&dd)
 		ScaleDayMealsFromCatalog(&dd, foods, stock, aliasFoods)
 		repairZeroKcalSlotsFromRaw(&dd)
-		CalibrateMealSlotsFromRawTotals(&dd, DefaultMealMarginPercent)
-		CalibrateDayTotalsFromLegacy(&dd, DefaultMealMarginPercent)
 		RecomputeDayTotalsWithMargin(&dd, DefaultMealMarginPercent)
 		if err := saveDayTxUser(tx, uid, &dd, DefaultMealMarginPercent); err != nil {
 			return err
@@ -963,7 +961,7 @@ func RecomputeDayTotals(d *Day) {
 	RecomputeDayTotalsWithMargin(d, DefaultMealMarginPercent)
 }
 
-// RecomputeDayTotalsWithMargin sums catalog item lines per slot, applies +margin on each slot, then day total.
+// RecomputeDayTotalsWithMargin sums catalog per slot (unpadded), then +margin once on the day total.
 func RecomputeDayTotalsWithMargin(d *Day, marginPercent float64) {
 	if d == nil {
 		return
@@ -979,14 +977,12 @@ func RecomputeDayTotalsWithMargin(d *Day, marginPercent float64) {
 		} else {
 			FinalizeMealTotals(&m)
 		}
-		if ShouldApplyMealSlotMargin(&m, marginPercent) {
-			ApplyMealSlotMargin(&m, marginPercent)
-		}
 		d.Meals[slot] = m
 		sod += m.SodiumMg
 		kc += m.Kcal
 	}
-	d.Totals = DayTotals{SodiumMg: sod, Kcal: kc}
+	totK, totS := ApplyDayMarginTotals(kc, sod, marginPercent)
+	d.Totals = DayTotals{SodiumMg: totS, Kcal: totK}
 }
 
 func (s *Store) mealMarginPercentUnlocked() float64 {
@@ -1000,8 +996,6 @@ func (s *Store) enrichDayTotalsUnlocked(d *Day) {
 	}
 	s.scaleMealSlotsLenient(d)
 	margin := s.mealMarginPercentUnlocked()
-	CalibrateMealSlotsFromRawTotals(d, margin)
-	CalibrateDayTotalsFromLegacy(d, margin)
 	RecomputeDayTotalsWithMargin(d, margin)
 }
 
@@ -1257,7 +1251,9 @@ func applyCatalogMacrosToItemForce(it *MealItem, f *Food, kcal100, sod100 *float
 	if sod100 != nil {
 		it.SodiumMg = *sod100 * it.Grams / 100
 	}
-	applyMealItemNoteMacros(it)
+	if strings.TrimSpace(it.FoodID) == "" && strings.TrimSpace(it.StockLotID) == "" {
+		applyMealItemNoteMacros(it)
+	}
 }
 
 func scaleDishWithCatalog(it *MealItem, catalog []Food, byAlias map[string]Food) error {

@@ -1,12 +1,46 @@
 package health
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestApplyMealItemNoteMacrosLabelPer100(t *testing.T) {
 	it := MealItem{Name: "rusks", Grams: 36, Note: `Rusks no salt 12 g ×3 (36 g, label 387 kcal / ~15 mg per 100 g)`}
 	applyMealItemNoteMacros(&it)
 	if it.Kcal < 138 || it.Kcal > 140 {
 		t.Fatalf("kcal %v want ~139", it.Kcal)
+	}
+}
+
+func TestCalibrateMealSlotsFromRawTotals_skipsCatalogLinkedStaleHighRaw(t *testing.T) {
+	pastaK := 155.0
+	d := &Day{Meals: map[string]MealSlot{
+		"lunch": {
+			Raw: `old total → **~3045 / ~1444**`,
+			Items: []MealItem{
+				{Name: "xirino me selino", FoodID: "xir", Grams: 400, Kcal: 380},
+				{
+					Name: "pasta",
+					Parts: []MealItem{
+						{Name: "Pasta (cooked, no salt)", FoodID: "pasta", Grams: 300, Kcal: pastaK / 100 * 300},
+						{Name: "pesto", FoodID: "pesto", Grams: 22, Kcal: 160},
+						{Name: "kefalotiri", FoodID: "kef", Grams: 7, Kcal: 37},
+					},
+					Kcal: pastaK/100*300 + 160 + 37,
+				},
+			},
+		},
+	}}
+	was := 380.0
+	CalibrateMealSlotsFromRawTotals(d, 10)
+	if k := d.Meals["lunch"].Items[0].Kcal; math.Abs(k-was) > 1 {
+		t.Fatalf("xirino kcal %v want ~380 unchanged, not scaled to stale raw 1444", k)
+	}
+	m := d.Meals["lunch"]
+	RecomputeMealSlotTotalsFromItems(&m)
+	if m.Kcal < 1040 || m.Kcal > 1045 {
+		t.Fatalf("lunch catalog kcal %v want ~1042 before meal margin", m.Kcal)
 	}
 }
 

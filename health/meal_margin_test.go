@@ -14,10 +14,10 @@ func TestRecomputeDayTotalsWithMealMargin(t *testing.T) {
 		Items: []MealItem{{Name: "y", Grams: 100, Kcal: 200, SodiumMg: 100}},
 	}
 	RecomputeDayTotalsWithMargin(d, 10)
-	if d.Meals["lunch"].Kcal != 110 || d.Meals["lunch"].SodiumMg != 55 {
+	if d.Meals["lunch"].Kcal != 100 || d.Meals["lunch"].SodiumMg != 50 {
 		t.Fatalf("lunch %+v", d.Meals["lunch"])
 	}
-	if d.Meals["snack"].Kcal != 220 || d.Meals["snack"].SodiumMg != 110 {
+	if d.Meals["snack"].Kcal != 200 || d.Meals["snack"].SodiumMg != 100 {
 		t.Fatalf("snack %+v", d.Meals["snack"])
 	}
 	if d.Totals.Kcal != 330 || d.Totals.SodiumMg != 165 {

@@ -41,12 +41,15 @@ func TestApplyLogMealAndNewFood(t *testing.T) {
 		t.Fatalf("bp %q", out.Day.BP)
 	}
 	lunch := out.Day.Meals["lunch"]
-	if lunch.Kcal < 143.99 || lunch.Kcal > 144.01 {
-		t.Fatalf("lunch kcal %v", lunch.Kcal)
+	if lunch.Kcal < 130.99 || lunch.Kcal > 131.01 {
+		t.Fatalf("lunch kcal %v want catalog 131 (margin on day total only)", lunch.Kcal)
 	}
 	snack := out.Day.Meals["snack"]
-	if snack.Kcal != 220 || snack.SodiumMg != 44 {
-		t.Fatalf("snack %+v", snack)
+	if snack.Kcal != 200 || snack.SodiumMg != 40 {
+		t.Fatalf("snack %+v want catalog (margin on day total only)", snack)
+	}
+	if tot := out.Day.Totals.Kcal; tot < 363 || tot > 365 {
+		t.Fatalf("day kcal %v want ~364 (331 catalog + 10%% once)", tot)
 	}
 	if st.FoodCount() != 2 {
 		t.Fatalf("foods %d", st.FoodCount())

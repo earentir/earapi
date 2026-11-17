@@ -7,6 +7,7 @@ import (
 )
 
 // ApplyMealSlotMargin scales slot kcal/sodium by +marginPercent (e.g. 10 => multiply by 1.1).
+// Deprecated for day totals: use ApplyDayMarginTotals on the summed catalog day instead.
 func ApplyMealSlotMargin(meal *MealSlot, marginPercent float64) {
 	if meal == nil || marginPercent <= 0 {
 		return
@@ -18,6 +19,23 @@ func ApplyMealSlotMargin(meal *MealSlot, marginPercent float64) {
 	if meal.SodiumMg > 0 {
 		meal.SodiumMg = math.Round(meal.SodiumMg * f)
 	}
+}
+
+// ApplyDayMarginTotals applies +margin% once to catalog day sums (after lunch+dinner+snack).
+func ApplyDayMarginTotals(kcal, sodiumMg, marginPercent float64) (float64, float64) {
+	if marginPercent <= 0 {
+		return kcal, sodiumMg
+	}
+	f := 1 + marginPercent/100
+	outK := kcal
+	outS := sodiumMg
+	if kcal > 0 {
+		outK = math.Round(kcal * f)
+	}
+	if sodiumMg > 0 {
+		outS = math.Round(sodiumMg * f)
+	}
+	return outK, outS
 }
 
 // FinalizeMealTotals fills slot sodium/kcal from items when not supplied.
@@ -110,6 +128,22 @@ func (s *Store) maybeEnsureFoodFromItem(it *MealItem) ([]Food, error) {
 		return []Food{got}, nil
 	}
 	return nil, nil
+}
+
+// MealItemIsCatalogLinked is true when this line (or any part) has food_id or stock_lot_id.
+func MealItemIsCatalogLinked(it *MealItem) bool {
+	if it == nil {
+		return false
+	}
+	if strings.TrimSpace(it.FoodID) != "" || strings.TrimSpace(it.StockLotID) != "" {
+		return true
+	}
+	for i := range it.Parts {
+		if MealItemIsCatalogLinked(&it.Parts[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 // MealHasCatalogLinkedItems is true when any line is tied to Foods or Stock (structured Today UI logs).
