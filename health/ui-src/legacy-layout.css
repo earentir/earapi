@@ -1226,6 +1226,38 @@ button.row-vert-label.pick-tag:hover {
   flex: 1 1 5.5rem;
 }
 
+.entity-form-modal .form-modal-row--3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  align-items: end;
+}
+
+.entity-form-modal .form-modal-row--3 .field {
+  flex: none;
+  min-width: 0;
+}
+
+.food-form-per100-preview {
+  background: var(--bg-panel, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+}
+
+.food-form-per100-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem 0.65rem;
+  align-items: baseline;
+  font-size: 0.82rem;
+}
+
+.food-form-per100-lab {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .entity-form-modal .form-modal-title {
   margin: 0;
   font-size: 1.05rem;

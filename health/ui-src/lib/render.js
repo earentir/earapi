@@ -528,7 +528,7 @@ function foodPickList(slot, i, partIdx, it, options) {
   }
   return `<div class="food-pick-list" role="listbox">${opts.map(({ f, label }) =>
     `<button type="button" data-resolve-food="${esc(f.id)}:${esc(slot)}:${i}${partIdx == null ? "" : `:${partIdx}`}" title="Save alias for this line name">
-      ${esc(label)} <span class="muted">${fmt(f.kcal_per_100g, 0)} kcal/100g</span>
+      ${esc(label)} <span class="muted">${esc(foodCatalogPickHint(f) || "—")}</span>
     </button>`
   ).join("")}</div>`;
 }
@@ -546,9 +546,8 @@ async function resolveFoodPick(foodID, slot, idx, part) {
     toast("Name required for alias");
     return;
   }
-  target.food_id = foodID;
-  target.kcal_per_100g = "";
-  target.sodium_mg_per_100g = "";
+  const food = state.foods.find((x) => x.id === foodID);
+  applyCatalogFoodToMealItem(target, food, alias);
   try {
     await api(`/foods/${foodID}/aliases`, { method: "POST", body: JSON.stringify({ alias }) });
     await loadFoods();
@@ -721,7 +720,7 @@ function suggestList(slot, i, partIdx, q, { isSetHeader = false } = {}) {
   if (!hits.length) return "";
   const partAttr = partIdx == null ? "" : ` data-part="${partIdx}"`;
   return `<div class="suggest-list" role="listbox">${hits.map(({ f, label }) =>
-    `<button type="button" data-pick-food="${esc(f.id)}" data-pick-label="${esc(label)}" data-slot="${esc(slot)}" data-idx="${i}"${partAttr}>${esc(label)} <span class="muted">${fmt(f.kcal_per_100g, 0)} kcal/100g</span></button>`
+    `<button type="button" data-pick-food="${esc(f.id)}" data-pick-label="${esc(label)}" data-slot="${esc(slot)}" data-idx="${i}"${partAttr}>${esc(label)} <span class="muted">${esc(foodCatalogPickHint(f) || "—")}</span></button>`
   ).join("")}</div>`;
 }
 
@@ -1272,10 +1271,7 @@ function bindStockModal(overlay) {
       const food = state.foods.find((f) => f.id === b.dataset.pickFood);
       const target = draftTarget(b.dataset.slot, b.dataset.idx, b.dataset.part);
       if (food && target) {
-        target.name = (b.dataset.pickLabel || "").trim() || food.name;
-        target.food_id = food.id;
-        target.kcal_per_100g = "";
-        target.sodium_mg_per_100g = "";
+        applyCatalogFoodToMealItem(target, food, b.dataset.pickLabel);
       }
       clearNameSuggest();
       refresh();
@@ -1521,15 +1517,39 @@ function foodAliasChipsHtml(aliases) {
   ).join("")}</div>`;
 }
 
+function readFoodFormPendingAliases(overlay) {
+  const box = overlay.querySelector("[data-food-alias-bulk]");
+  if (!box) return [];
+  return [...new Set((box.value || "").split(/\n+/).map((n) => n.trim()).filter(Boolean))];
+}
+
+async function addFoodAliases(foodId, names) {
+  const uniq = [...new Set((names || []).map((n) => n.trim()).filter(Boolean))];
+  if (!foodId || !uniq.length) return 0;
+  for (const alias of uniq) {
+    await api(`/foods/${foodId}/aliases`, { method: "POST", body: JSON.stringify({ alias }) });
+  }
+  return uniq.length;
+}
+
 function foodFormAliasesSectionHtml(foodId) {
-  if (!foodId) return "";
-  return `<section class="food-alias-section" data-food-alias-section="${esc(foodId)}">
-    <p class="muted form-modal-hint" style="margin:0 0 0.45rem">Aliases — other names that should match this catalog food in meals and import.</p>
-    <div class="food-alias-list">${foodAliasChipsHtml(foodAliasesForId(foodId))}</div>
+  const list = foodId
+    ? `<div class="food-alias-list">${foodAliasChipsHtml(foodAliasesForId(foodId))}</div>`
+    : "";
+  const saveHint = foodId
+    ? ""
+    : `<p class="muted form-modal-hint" style="margin:0.35rem 0 0;font-size:0.82rem">Lines above are saved when you click Add food.</p>`;
+  const addBtn = foodId
+    ? `<button type="button" class="btn" data-food-alias-bulk-add style="margin-top:0.35rem">Add</button>`
+    : "";
+  return `<section class="food-alias-section"${foodId ? ` data-food-alias-section="${esc(foodId)}"` : ""}>
+    <p class="muted form-modal-hint" style="margin:0 0 0.45rem">Aliases — spellings and shorthand that should match this food in meal lines and import.</p>
+    ${list}
     <label class="field" style="margin-top:0.55rem"><span>Add aliases (one per line)</span>
       <textarea data-food-alias-bulk rows="3" placeholder="peppers&#10;grilled peppers&#10;florina pepper"></textarea>
     </label>
-    <button type="button" class="btn" data-food-alias-bulk-add style="margin-top:0.35rem">Add</button>
+    ${addBtn}
+    ${saveHint}
   </section>`;
 }
 
@@ -1546,16 +1566,13 @@ function mountFoodFormAliases(overlay, foodId) {
   };
 
   const addNames = async (names) => {
-    const uniq = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
-    if (!uniq.length) return;
     try {
-      for (const alias of uniq) {
-        await api(`/foods/${foodId}/aliases`, { method: "POST", body: JSON.stringify({ alias }) });
-      }
+      const n = await addFoodAliases(foodId, names);
+      if (!n) return;
       await loadFoods();
       refresh();
       render();
-      toast(uniq.length > 1 ? `Added ${uniq.length} aliases` : "Alias added");
+      toast(n > 1 ? `Added ${n} aliases` : "Alias added");
     } catch (e) {
       toast(e.message || "alias failed");
     }
@@ -1582,46 +1599,171 @@ async function removeFoodAlias(foodId, alias, refresh) {
   }
 }
 
+function catalogFoodPackGrams(food) {
+  const g = Number(food?.label_grams);
+  return g > 0 ? g : null;
+}
+
+function foodCatalogPickHint(f) {
+  const g = catalogFoodPackGrams(f);
+  const k = Number(f?.label_kcal);
+  if (g != null && k > 0) return `${fmt(k, 0)} kcal / ${fmt(g, 0)} g pack`;
+  if (f?.kcal_per_100g != null) return `${fmt(f.kcal_per_100g, 0)} kcal/100g`;
+  return "";
+}
+
+function applyCatalogFoodToMealItem(target, food, labelName) {
+  if (!target || !food) return;
+  target.name = (labelName || "").trim() || food.name;
+  target.food_id = food.id;
+  target.kcal_per_100g = "";
+  target.sodium_mg_per_100g = "";
+  const g = catalogFoodPackGrams(food);
+  if (g != null) target.grams = String(g);
+}
+
+function foodFormLabelGrams(f) {
+  const g = Number(f?.label_grams);
+  return g > 0 ? g : 100;
+}
+
+function foodLabelKcalDisplay(f) {
+  if (f?.label_kcal != null && Number(f.label_kcal) > 0) return String(Math.round(Number(f.label_kcal)));
+  return foodLabelAmount(f?.kcal_per_100g, foodFormLabelGrams(f), { decimals: 0 });
+}
+
+function foodLabelSaltTotalDisplay(f) {
+  if (f?.label_sodium_mg != null && Number(f.label_sodium_mg) > 0) {
+    const saltG = saltGFromSodiumMg(Number(f.label_sodium_mg));
+    if (saltG != null) return String(Math.round(saltG * 100) / 100);
+  }
+  return foodLabelAmount(foodSaltG(f), foodFormLabelGrams(f), { decimals: 2 });
+}
+
+function foodLabelAmount(per100, labelG, { decimals = 1 } = {}) {
+  if (per100 == null || per100 === "" || Number.isNaN(Number(per100))) return "";
+  const g = labelG > 0 ? labelG : 100;
+  const v = (Number(per100) * g) / 100;
+  if (decimals === 0) return String(Math.round(v));
+  const r = Math.round(v * 10 ** decimals) / 10 ** decimals;
+  return String(r);
+}
+
+function foodFormPer100Cell(val, unit = "") {
+  if (val == null || !Number.isFinite(val)) return `<span class="mono muted">—</span>`;
+  const n = unit === "kcal" ? fmt(val, 0) : fmt(val, val < 10 ? 2 : 1);
+  return `<span class="mono">${esc(n)}${unit ? ` <span class="muted">${unit}</span>` : ""}</span>`;
+}
+
+function refreshFoodFormPer100Preview(overlay) {
+  const host = overlay.querySelector("[data-food-form-per100]");
+  if (!host) return;
+  const val = (k) => overlay.querySelector(`[data-ff="${k}"]`)?.value ?? "";
+  const labelG = numOrUndef(val("label_g"));
+  if (!labelG || labelG <= 0) {
+    host.innerHTML = `<p class="muted" style="margin:0">Enter label total g to see per 100 g.</p>`;
+    return;
+  }
+  const toPer100 = (raw) => {
+    const n = numOrUndef(raw);
+    return n == null ? null : (n / labelG) * 100;
+  };
+  let kcalT = numOrUndef(val("kcal"));
+  let kjT = numOrUndef(val("kj"));
+  if (kjT == null && kcalT != null) kjT = Math.round(kcalT * 4.184 * 10) / 10;
+  const kcal = toPer100(kcalT);
+  let kj = toPer100(kjT);
+  if (kj == null && kcal != null) kj = Math.round(kcal * 4.184 * 10) / 10;
+  const saltP = toPer100(numOrUndef(val("salt")));
+  const rows = [
+    ["kcal", foodFormPer100Cell(kcal, "kcal")],
+    ["kJ", foodFormPer100Cell(kj, "kJ")],
+    ["fat", foodFormPer100Cell(toPer100(val("fat")), "g")],
+    ["sat", foodFormPer100Cell(toPer100(val("sat")), "g")],
+    ["carbs", foodFormPer100Cell(toPer100(val("carbs")), "g")],
+    ["sugars", foodFormPer100Cell(toPer100(val("sugars")), "g")],
+    ["protein", foodFormPer100Cell(toPer100(val("protein")), "g")],
+    ["salt", foodFormPer100Cell(saltP, "g")],
+    ["Na", foodFormPer100Cell(saltP != null ? sodiumMgFromSaltG(saltP) : null, "mg")],
+  ];
+  host.innerHTML = `<p class="muted" style="margin:0 0 0.35rem;font-size:0.82rem">Stored in catalog (per 100 g)</p>
+    <div class="food-form-per100-grid">${rows.map(([lab, cell]) =>
+      `<span class="food-form-per100-lab muted">${esc(lab)}</span>${cell}`
+    ).join("")}</div>`;
+}
+
+function bindFoodFormPer100Preview(overlay) {
+  refreshFoodFormPer100Preview(overlay);
+  overlay.querySelectorAll("[data-ff]").forEach((inp) => {
+    inp.addEventListener("input", () => refreshFoodFormPer100Preview(overlay));
+    inp.addEventListener("change", () => refreshFoodFormPer100Preview(overlay));
+  });
+}
+
 function foodFormFieldsHtml(f) {
-  const salt = foodSaltG(f);
+  const labelG = foodFormLabelGrams(f);
+  const dispKcal = foodLabelKcalDisplay(f);
+  const dispKj = f?.label_kcal != null
+    ? String(Math.round(Number(f.label_kcal) * 4.184))
+    : foodLabelAmount(f?.energy_kj_per_100g, labelG, { decimals: 0 });
   return `<label class="field grow"><span>Name</span><input data-ff="name" value="${esc(f?.name || "")}"></label>
+    <p class="muted form-modal-hint" style="margin:0">Pack label: <strong>total g</strong> and nutrients <strong>for that amount</strong> (kept for one-tap logging). Per 100 g is derived below and used for other portions.</p>
+    <label class="field tight" style="max-width:10rem;margin-top:0.15rem"><span>Label total g</span>
+      <input data-ff="label_g" value="${esc(f?.label_grams > 0 ? f.label_grams : 100)}" inputmode="decimal" placeholder="100"></label>
     <p class="muted form-modal-hint" style="margin:0">EU nutrition declaration (Reg. 1169/2011)</p>
-    <div class="form-modal-row row">
-      <label class="field tight"><span>kcal</span><input data-ff="kcal" value="${esc(f?.kcal_per_100g ?? "")}" inputmode="decimal"></label>
-      <label class="field tight"><span>kJ</span><input data-ff="kj" value="${esc(f?.energy_kj_per_100g ?? "")}" inputmode="decimal" placeholder="auto"></label>
+    <div class="form-modal-row form-modal-row--3 row">
+      <label class="field tight"><span>kcal total</span><input data-ff="kcal" value="${esc(dispKcal)}" inputmode="decimal"></label>
+      <label class="field tight"><span>kJ total</span><input data-ff="kj" value="${esc(dispKj)}" inputmode="decimal" placeholder="auto"></label>
+      <label class="field tight"><span>Fat g total</span><input data-ff="fat" value="${esc(foodLabelAmount(f?.fat_g_per_100g, labelG))}" inputmode="decimal"></label>
     </div>
-    <div class="form-modal-row row">
-      <label class="field tight"><span>Fat g</span><input data-ff="fat" value="${esc(f?.fat_g_per_100g ?? "")}" inputmode="decimal"></label>
-      <label class="field tight"><span>Sat g</span><input data-ff="sat" value="${esc(f?.saturates_g_per_100g ?? "")}" inputmode="decimal"></label>
+    <div class="form-modal-row form-modal-row--3 row">
+      <label class="field tight"><span>Sat g total</span><input data-ff="sat" value="${esc(foodLabelAmount(f?.saturates_g_per_100g, labelG))}" inputmode="decimal"></label>
+      <label class="field tight"><span>Carbs g total</span><input data-ff="carbs" value="${esc(foodLabelAmount(f?.carbs_g_per_100g, labelG))}" inputmode="decimal"></label>
+      <label class="field tight"><span>Sugars g total</span><input data-ff="sugars" value="${esc(foodLabelAmount(f?.sugars_g_per_100g, labelG))}" inputmode="decimal"></label>
     </div>
-    <div class="form-modal-row row">
-      <label class="field tight"><span>Carbs g</span><input data-ff="carbs" value="${esc(f?.carbs_g_per_100g ?? "")}" inputmode="decimal"></label>
-      <label class="field tight"><span>Sugars g</span><input data-ff="sugars" value="${esc(f?.sugars_g_per_100g ?? "")}" inputmode="decimal"></label>
+    <div class="form-modal-row form-modal-row--3 row">
+      <label class="field tight"><span>Protein g total</span><input data-ff="protein" value="${esc(foodLabelAmount(f?.protein_g_per_100g, labelG))}" inputmode="decimal"></label>
+      <label class="field tight"><span>Salt g total</span><input data-ff="salt" value="${esc(foodLabelSaltTotalDisplay(f))}" inputmode="decimal" title="EU label salt (NaCl g for label total)"></label>
     </div>
-    <div class="form-modal-row row">
-      <label class="field tight"><span>Protein g</span><input data-ff="protein" value="${esc(f?.protein_g_per_100g ?? "")}" inputmode="decimal"></label>
-      <label class="field tight"><span>Salt g</span><input data-ff="salt" value="${esc(salt ?? "")}" inputmode="decimal" title="EU label salt (NaCl g per 100 g)"></label>
-      <p class="muted form-modal-hint" style="margin:0;grid-column:1/-1">Salt on EU labels is NaCl (g/100g). Meal sodium uses 393 mg Na per 1 g salt (not mg×1000). Greek chicken souvlaki skewers are typically ~1.2–1.3 g salt/100g (~470–510 mg Na).</p>
-    </div>
+    <aside class="food-form-per100-preview card" data-food-form-per100 style="padding:0.55rem 0.65rem;margin:0.25rem 0 0"></aside>
+    <p class="muted form-modal-hint" style="margin:0">Salt is NaCl on the label. Meal sodium uses 393 mg Na per 1 g salt.</p>
     <label class="field"><span>Notes</span><textarea data-ff="notes" rows="2">${esc(f?.notes || "")}</textarea></label>
     ${foodFormAliasesSectionHtml(f?.id)}`;
 }
 
 function readFoodForm(overlay) {
   const val = (k) => overlay.querySelector(`[data-ff="${k}"]`)?.value ?? "";
-  const salt = numOrUndef(val("salt"));
-  const kcal = numOrUndef(val("kcal"));
-  let kj = numOrUndef(val("kj"));
+  const labelG = numOrUndef(val("label_g"));
+  if (!labelG || labelG <= 0) {
+    return { error: "Label total g must be greater than 0" };
+  }
+  const toPer100 = (n) => (n == null ? undefined : (n / labelG) * 100);
+
+  let kcalTotal = numOrUndef(val("kcal"));
+  let kjTotal = numOrUndef(val("kj"));
+  if (kjTotal == null && kcalTotal != null) kjTotal = Math.round(kcalTotal * 4.184 * 10) / 10;
+
+  const kcal = toPer100(kcalTotal);
+  let kj = toPer100(kjTotal);
   if (kj == null && kcal != null) kj = Math.round(kcal * 4.184 * 10) / 10;
+
+  const saltTotal = numOrUndef(val("salt"));
+  const salt = toPer100(saltTotal);
+
+  const labelSodium = saltTotal != null ? sodiumMgFromSaltG(saltTotal) : undefined;
+
   return {
     name: val("name").trim(),
+    label_grams: labelG,
+    label_kcal: kcalTotal,
+    label_sodium_mg: labelSodium,
     kcal_per_100g: kcal,
     energy_kj_per_100g: kj,
-    fat_g_per_100g: numOrUndef(val("fat")),
-    saturates_g_per_100g: numOrUndef(val("sat")),
-    carbs_g_per_100g: numOrUndef(val("carbs")),
-    sugars_g_per_100g: numOrUndef(val("sugars")),
-    protein_g_per_100g: numOrUndef(val("protein")),
+    fat_g_per_100g: toPer100(numOrUndef(val("fat"))),
+    saturates_g_per_100g: toPer100(numOrUndef(val("sat"))),
+    carbs_g_per_100g: toPer100(numOrUndef(val("carbs"))),
+    sugars_g_per_100g: toPer100(numOrUndef(val("sugars"))),
+    protein_g_per_100g: toPer100(numOrUndef(val("protein"))),
     salt_g_per_100g: salt,
     sodium_mg_per_100g: salt != null ? sodiumMgFromSaltG(salt) : undefined,
     notes: val("notes").trim(),
@@ -1641,10 +1783,15 @@ function foodsView() {
     const aliasHint = aliases.length
       ? `<p class="food-catalog-aliases muted" title="Meal-line aliases">${aliases.map((a) => esc(a)).join(" · ")}</p>`
       : "";
+    const pickHint = foodCatalogPickHint(f);
+    const packLine = pickHint
+      ? `<p class="muted food-catalog-pack" style="margin:0.15rem 0 0;font-size:0.82rem">${esc(pickHint)}</p>`
+      : "";
     return `<article class="food-catalog-card clickable" data-open-food="${esc(f.id)}">
     <div class="food-catalog-layout">
       <div class="food-catalog-main">
         <h3 class="food-catalog-name">${esc(foodCatalogDisplayName(f.name))}</h3>
+        ${packLine}
         ${aliasHint}
         ${f.notes ? `<p class="food-catalog-notes muted">${esc(f.notes)}</p>` : ""}
       </div>
@@ -2004,10 +2151,7 @@ function bind() {
       const food = state.foods.find((f) => f.id === b.dataset.pickFood);
       const target = draftTarget(b.dataset.slot, b.dataset.idx, b.dataset.part);
       if (food && target) {
-        target.name = (b.dataset.pickLabel || "").trim() || food.name;
-        target.food_id = food.id;
-        target.kcal_per_100g = "";
-        target.sodium_mg_per_100g = "";
+        applyCatalogFoodToMealItem(target, food, b.dataset.pickLabel);
         scheduleSaveDay();
       }
       clearNameSuggest();
@@ -2391,6 +2535,7 @@ async function openFoodForm(id) {
     submitLabel: editing ? "Save" : "Add",
     extraClass: "entity-form-modal food-entity-modal",
     onMount: (overlay) => {
+      bindFoodFormPer100Preview(overlay);
       if (editing) mountFoodFormAliases(overlay, f.id);
       if (editing) {
         const actions = overlay.querySelector(".modal-action");
@@ -2414,18 +2559,28 @@ async function openFoodForm(id) {
     },
     onSubmit: async (overlay) => {
       const body = readFoodForm(overlay);
+      if (body.error) {
+        toast(body.error);
+        return false;
+      }
       if (!body.name) {
         toast("Name required");
         return false;
       }
       try {
+        let foodId = f?.id;
         if (f) {
           await api(`/foods/${f.id}`, { method: "PUT", body: JSON.stringify(body) });
         } else {
-          await api("/foods/batch", { method: "POST", body: JSON.stringify({ upsert: [body] }) });
+          const data = await api("/foods/batch", { method: "POST", body: JSON.stringify({ upsert: [body] }) });
+          foodId = data?.foods?.[0]?.id;
+        }
+        const pendingAliases = readFoodFormPendingAliases(overlay);
+        if (foodId && pendingAliases.length) {
+          await addFoodAliases(foodId, pendingAliases);
         }
         await loadFoods();
-        toast("Food saved");
+        toast(pendingAliases.length ? "Food and aliases saved" : "Food saved");
         render();
         return true;
       } catch (e) {
