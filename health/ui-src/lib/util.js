@@ -172,7 +172,7 @@ export function formModal({
           <button type="button" class="btn primary" data-fm-submit>${esc(submitLabel)}</button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop"><button type="button" data-fm-cancel aria-label="Close">close</button></form>
+      <div class="modal-backdrop modal-backdrop-inert" aria-hidden="true"></div>
     </div>`);
     const close = (vals) => {
       overlay.remove();
@@ -221,6 +221,7 @@ export function formModal({
  */
 export function customModal({
   title,
+  titleAside,
   bodyHtml,
   submitLabel = "Save",
   cancelLabel = "Cancel",
@@ -234,9 +235,12 @@ export function customModal({
     const deleteBtn = deleteLabel && onDelete
       ? `<button type="button" class="btn danger" data-cm-delete>${esc(deleteLabel)}</button>`
       : "";
+    const head = titleAside
+      ? `<div class="modal-head-row"><h3 class="text-lg font-bold">${esc(title)}</h3><div class="modal-head-aside">${titleAside}</div></div>`
+      : `<h3 class="text-lg font-bold">${esc(title)}</h3>`;
     const overlay = el(`<div class="modal modal-open modal-middle ${extraClass}" role="dialog" aria-modal="true">
       <div class="modal-box modal-box-form modal-box-wide">
-        <h3 class="text-lg font-bold">${esc(title)}</h3>
+        ${head}
         <div class="custom-modal-body">${bodyHtml}</div>
         <div class="modal-action">
           ${deleteBtn}
@@ -244,7 +248,7 @@ export function customModal({
           <button type="button" class="btn primary" data-cm-submit>${esc(submitLabel)}</button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop"><button type="button" data-cm-cancel aria-label="Close">close</button></form>
+      <div class="modal-backdrop modal-backdrop-inert" aria-hidden="true"></div>
     </div>`);
     const close = (ok) => {
       overlay.remove();
@@ -290,7 +294,7 @@ export function confirmModal({ title, message, confirmLabel = "Confirm", cancelL
           <button type="button" class="btn ${danger ? "danger" : "primary"}" data-confirm-ok>${esc(confirmLabel)}</button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop"><button type="button" data-confirm-cancel aria-label="Close">close</button></form>
+      <div class="modal-backdrop modal-backdrop-inert" aria-hidden="true"></div>
     </div>`);
     const done = (ok) => {
       overlay.remove();

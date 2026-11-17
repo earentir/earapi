@@ -16,20 +16,21 @@ export function daysKcalChartSectionHtml() {
   </section>`;
 }
 
-export function mountDaysKcalChart(host, days, budgetRaw) {
+export function mountDaysKcalChart(host, days, budgetRaw, sedentaryKcal) {
   if (!host) return;
   let lastKey = "";
   const paint = () => {
-    const key = `${host.clientWidth}x${host.clientHeight}`;
+    const sed = Number(sedentaryKcal) || 0;
+    const key = `${host.clientWidth}x${host.clientHeight}x${sed}`;
     if (key === lastKey && host.querySelector("svg, p")) return;
     lastKey = key;
-    paintDaysKcalChart(host, days, budgetRaw);
+    paintDaysKcalChart(host, days, budgetRaw, sed);
   };
   paint();
   watchChartHost(host, paint);
 }
 
-function paintDaysKcalChart(host, days, budgetRaw) {
+function paintDaysKcalChart(host, days, budgetRaw, sedentaryKcal = 0) {
   const budget = mergedKcalBudget(budgetRaw);
   const series = (days || [])
     .map((d) => ({
@@ -48,6 +49,7 @@ function paintDaysKcalChart(host, days, budgetRaw) {
 
   const yMax = Math.max(
     budget.gain_min_kcal,
+    sedentaryKcal > 0 ? sedentaryKcal : 0,
     ...series.map((s) => s.kcal),
   );
   const tip = document.createElement("div");
@@ -76,6 +78,7 @@ function paintDaysKcalChart(host, days, budgetRaw) {
   const limits = [
     { k: budget.soft_low_kcal, label: `${budget.soft_low_kcal}`, cls: "soft-low" },
     { k: budget.soft_high_kcal, label: `${budget.soft_high_kcal}`, cls: "soft-high" },
+    ...(sedentaryKcal > 0 ? [{ k: sedentaryKcal, label: `${fmt(sedentaryKcal, 0)} sed`, cls: "sedentary" }] : []),
     { k: budget.gain_min_kcal, label: `${budget.gain_min_kcal} gain`, cls: "gain" },
   ];
 

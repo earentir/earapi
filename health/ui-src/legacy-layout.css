@@ -1406,6 +1406,11 @@ button.row-vert-label.pick-tag:hover {
   stroke: var(--warn, #f87171);
 }
 
+.days-kcal-guide--sedentary {
+  stroke: var(--color-primary);
+  opacity: 0.9;
+}
+
 .days-kcal-guide-label {
   fill: var(--muted, color-mix(in oklab, var(--color-base-content) 55%, transparent));
   font-size: 9px;
@@ -1476,6 +1481,41 @@ button.row-vert-label.pick-tag:hover {
   max-height: min(70vh, 32rem);
   overflow: auto;
   margin-top: 0.5rem;
+}
+
+.modal-backdrop-inert {
+  pointer-events: none;
+  cursor: default;
+}
+
+.modal-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.modal-head-row h3 {
+  margin: 0;
+}
+
+.modal-head-aside {
+  flex-shrink: 0;
+}
+
+.stock-modal-active-toggle {
+  margin: 0;
+  padding: 0;
+}
+
+.sedentary-discount-field .range {
+  width: 100%;
+  max-width: 28rem;
+}
+
+.sedentary-discount-row {
+  width: 100%;
 }
 
 .stock-batch-modal .modal-action {

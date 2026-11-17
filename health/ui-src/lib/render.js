@@ -269,6 +269,7 @@ function dayMassDeltaMarkup(d, kcal) {
     heightCm: b.height_cm,
     ageYears: b.age_years,
     sex: b.sex,
+    sedentary_discount_percent: b.sedentary_discount_percent,
   });
   if (!est) return "";
   const grams = estimatedMassDeltaGrams(kcal, est.sedentary);
@@ -1089,6 +1090,7 @@ function daysView() {
     root.querySelector("[data-days-kcal-chart]"),
     visibleDays,
     state.kcalBudget,
+    sedentaryKcalForBudget(),
   );
   return root;
 }
@@ -1196,18 +1198,29 @@ function stockDensity(lot) {
   return `${k}${k && n ? ", " : ""}${n} / 100g`;
 }
 
+/** Batch size from ingredient rows; falls back to saved batch only when parts have no grams yet. */
+function stockDerivedBatchGrams(set, form) {
+  recomputeSetGrams(set);
+  const { grams } = setPartStats({ parts: set?.parts || [] });
+  if (grams > 0.01) return grams;
+  const saved = numOrUndef(form?.batch_grams);
+  return saved != null && saved > 0 ? saved : 0;
+}
+
 function stockBatchEditorHtml() {
   ensureStockMealDraft();
   const f = state.stockForm;
   const set = state.mealDraft.stock.items[0];
-  return `<p class="muted form-modal-hint">Name the batch, list ingredients for the <strong>full batch</strong>, then weighed batch total and what is left.</p>
+  const batchG = stockDerivedBatchGrams(set, f);
+  const leftNow = f?.id ? Math.max(0, numOrUndef(f.remaining_grams) ?? batchG) : batchG;
+  return `<p class="muted form-modal-hint">Name the batch and list ingredients with <strong>grams for the full batch</strong>. Batch total is the sum of those grams.</p>
     ${mealItemsGridHead()}
     ${itemBlock("stock", 0, set)}
-    <div class="row" style="margin-top:0.55rem;flex-wrap:wrap">
+    <input type="hidden" id="stock-batch" value="${esc(batchG > 0 ? batchG : "")}">
+    <p class="stock-batch-total muted" style="margin:0.55rem 0 0;font-size:0.88rem">Batch total: <span class="mono" id="stock-batch-display">${batchG > 0 ? `${fmt(batchG, 0)} g` : "add ingredient grams"}</span></p>
+    ${f?.id ? `<p class="muted" style="margin:0.25rem 0 0;font-size:0.82rem">In fridge: <span class="mono">${fmt(leftNow, 0)} g</span> left (updated by logging and use, not here)</p>` : ""}
+    <div class="row" style="margin-top:0.45rem;flex-wrap:wrap">
       <label class="field date-field"><span>Prepared</span><input type="text" class="iso-date mono" id="stock-date" value="${esc(f.prepared_date)}" placeholder="YYYY-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off" lang="en"></label>
-      <label class="field tight"><span>Batch g</span><input id="stock-batch" value="${esc(f.batch_grams)}" inputmode="decimal"></label>
-      <label class="field tight"><span>Left g</span><input id="stock-left" value="${esc(f.remaining_grams)}" inputmode="decimal" placeholder="= batch"></label>
-      <label class="field tight stock-form-active"><span>Active</span><input type="checkbox" id="stock-active" ${f.active !== false ? "checked" : ""}></label>
     </div>
     <label class="field" style="margin-top:0.45rem"><span>Notes (optional per-100g in text)</span><textarea id="stock-notes" rows="2">${esc(f.notes)}</textarea></label>`;
 }
@@ -1349,9 +1362,15 @@ function closeStockModalCleanup() {
 
 async function openStockBatchModal() {
   const editing = !!state.stockForm?.id;
+  const f = state.stockForm;
   const title = editing ? "Edit batch" : "New batch";
+  const activeOn = f?.active !== false;
   await customModal({
     title,
+    titleAside: `<label class="label cursor-pointer gap-2 stock-modal-active-toggle" title="Active in fridge">
+      <span class="label-text text-sm">Active</span>
+      <input type="checkbox" id="stock-active" class="toggle toggle-sm toggle-primary" ${activeOn ? "checked" : ""}>
+    </label>`,
     bodyHtml: stockBatchEditorHtml(),
     submitLabel: editing ? "Save changes" : "Save batch",
     extraClass: "stock-batch-modal",
@@ -1816,6 +1835,7 @@ function weighInEnergy(w) {
     heightCm: b.height_cm,
     ageYears: b.age_years,
     sex: b.sex,
+    sedentary_discount_percent: b.sedentary_discount_percent,
   });
 }
 
@@ -1861,6 +1881,21 @@ function latestEnergyKg() {
   return Number(w?.kg) || 0;
 }
 
+function sedentaryKcalForBudget(budget = state.kcalBudget) {
+  const b = mergedKcalBudget(budget);
+  const kg = latestEnergyKg();
+  const est = energyFromInputs({
+    kg,
+    heightCm: b.height_cm,
+    ageYears: b.age_years,
+    sex: b.sex,
+    sedentary_discount_percent: b.sedentary_discount_percent,
+  });
+  if (est?.sedentary > 0) return est.sedentary;
+  const fromApi = Number(budget?.sedentary_kcal);
+  return fromApi > 0 ? Math.round(fromApi) : null;
+}
+
 function latestEnergyKgLabel() {
   const w = state.overview?.latest_weight;
   if (w && Number(w.kg) > 0) {
@@ -1875,6 +1910,7 @@ function energyEstimateHtml(b, kg) {
     heightCm: b.height_cm,
     ageYears: b.age_years,
     sex: b.sex,
+    sedentary_discount_percent: b.sedentary_discount_percent,
   });
   if (!kg) {
     return `<p class="muted" id="energy-estimate" style="margin:0.55rem 0 0">Add a weigh-in to compute daily burn.</p>`;
@@ -1882,9 +1918,21 @@ function energyEstimateHtml(b, kg) {
   if (!est) {
     return `<p class="muted" id="energy-estimate" style="margin:0.55rem 0 0">Fill sex, age, and height. Weight used: ${fmt(kg, 1)} kg.</p>`;
   }
+  const discNote = est.sedentaryDiscountPercent > 0
+    ? ` (${fmt(est.sedentaryDiscountPercent, 0)}% below standard ${fmt(est.sedentaryBase, 0)} kcal)`
+    : "";
   return `<p class="muted" id="energy-estimate" style="margin:0.55rem 0 0">
-    Using ${fmt(est.kg, 1)} kg: BMR ${fmt(est.bmr, 0)} kcal, sedentary ${fmt(est.sedentary, 0)} kcal/day.
+    Using ${fmt(est.kg, 1)} kg: BMR ${fmt(est.bmr, 0)} kcal, sedentary ${fmt(est.sedentary, 0)} kcal/day${discNote}.
   </p>`;
+}
+
+function settingsEnergyBudgetFromForm() {
+  return {
+    sex: document.getElementById("set-sex")?.value || "",
+    age_years: Number(document.getElementById("set-age")?.value) || 0,
+    height_cm: Number(document.getElementById("set-height")?.value) || 0,
+    sedentary_discount_percent: Number(document.getElementById("set-sedentary-discount")?.value) || 0,
+  };
 }
 
 function settingsView() {
@@ -1892,10 +1940,11 @@ function settingsView() {
   const kg = latestEnergyKg();
   const kgLine = latestEnergyKgLabel();
   const sex = b.sex === "female" ? "female" : b.sex === "male" ? "male" : "";
+  const sedDisc = b.sedentary_discount_percent || 0;
   return el(`<div>
     <section class="card">
       <h2>Sedentary energy</h2>
-      <p class="muted form-modal-hint" style="margin-top:0">Mifflin-St Jeor resting burn (BMR), then times 1.2 for a sedentary day (little or no exercise). Weight is your latest weigh-in.</p>
+      <p class="muted form-modal-hint" style="margin-top:0">Mifflin-St Jeor resting burn (BMR), then ×1.2 for a sedentary day. Slide below to use a lower sedentary burn (mass hints use that value). Weight is your latest weigh-in.</p>
       <div class="row settings-kcal-fields" style="flex-wrap:wrap;gap:0.65rem;margin-top:0.85rem">
         <label class="field"><span>Sex</span>
           <select id="set-sex">
@@ -1907,6 +1956,14 @@ function settingsView() {
         <label class="field"><span>Age (years)</span><input id="set-age" type="number" min="12" max="120" step="1" value="${esc(b.age_years ? String(b.age_years) : "")}"></label>
         <label class="field"><span>Height (cm)</span><input id="set-height" type="number" min="80" max="250" step="0.5" value="${esc(b.height_cm ? String(b.height_cm) : "")}"></label>
       </div>
+      <label class="field sedentary-discount-field" style="margin-top:0.75rem">
+        <span>Lower sedentary burn</span>
+        <div class="sedentary-discount-row row" style="align-items:center;gap:0.65rem;margin-top:0.25rem">
+          <input type="range" id="set-sedentary-discount" class="range range-primary range-sm grow" min="0" max="50" step="1" value="${esc(String(sedDisc))}">
+          <span class="mono sedentary-discount-val" id="set-sedentary-discount-val" style="min-width:2.5rem;text-align:right">${esc(String(sedDisc))}%</span>
+        </div>
+        <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem">0% = full sedentary (BMR × 1.2). Up to 50% less kcal/day for estimates.</p>
+      </label>
       <p class="muted" style="font-size:0.82rem;margin:0.55rem 0 0">${kgLine ? `Latest weigh-in: ${esc(kgLine)}` : "No weigh-in yet."}</p>
       ${energyEstimateHtml(b, kg)}
     </section>
@@ -1960,13 +2017,15 @@ function settingsView() {
     </section>
     <section class="card" style="margin-top:0.85rem">
       <h2>Meal total margin</h2>
-      <p class="muted form-modal-hint" style="margin-top:0">Adds this percent to each meal slot total (lunch, dinner, snack) after catalog math, same as your markdown <span class="mono">+10% margin</span> lines. Day total is the sum of those meal totals. Item lines stay unpadded.</p>
-      <label class="field" style="max-width:12rem;margin-top:0.65rem">
+      <p class="muted form-modal-hint" style="margin-top:0">Adds this percent <strong>once</strong> to the catalog day total (lunch + dinner + snack). Meal slot headers and item lines stay unpadded. Changes save automatically.</p>
+      <label class="field meal-margin-field" style="margin-top:0.65rem">
         <span>Margin (%)</span>
-        <input id="set-meal-margin" type="number" min="0" max="100" step="0.5" value="${esc(String(b.meal_margin_percent))}">
+        <div class="meal-margin-row row" style="align-items:center;gap:0.65rem;margin-top:0.25rem">
+          <input type="range" id="set-meal-margin" class="range range-primary range-sm grow" min="0" max="100" step="1" value="${esc(String(Math.round(Number(b.meal_margin_percent) || 0)))}">
+          <span class="mono" id="set-meal-margin-val" style="min-width:2.5rem;text-align:right">${esc(String(Math.round(Number(b.meal_margin_percent) || 0)))}%</span>
+        </div>
       </label>
       <div class="row" style="margin-top:0.85rem;flex-wrap:wrap;gap:0.45rem">
-        <button type="button" class="btn primary" id="settings-save">Save</button>
         <button type="button" class="btn" id="settings-reset">Reset defaults</button>
       </div>
     </section>
@@ -1993,7 +2052,31 @@ function applyKcalBudgetFromOverview(overview) {
   }
 }
 
-async function saveKcalBudgetFromForm() {
+let settingsSaveTimer = null;
+let settingsSaveInFlight = false;
+
+function scheduleSettingsSave() {
+  clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = setTimeout(() => {
+    saveKcalBudgetFromForm({ quiet: true }).catch((e) => toast(e.message));
+  }, 450);
+}
+
+function refreshDaysKcalChartIfPresent() {
+  if (state.tab !== "days") return;
+  const host = document.querySelector("[data-days-kcal-chart]");
+  if (!host) return;
+  const periodDays = recordsInRange(state.days || [], state.daysRange, resolveTodayDate(state));
+  const visibleDays = filterDaysByStatus(periodDays, state.daysStatusFilter);
+  mountDaysKcalChart(host, visibleDays, state.kcalBudget, sedentaryKcalForBudget());
+}
+
+async function saveKcalBudgetFromForm({ quiet = false } = {}) {
+  if (settingsSaveInFlight) {
+    scheduleSettingsSave();
+    return;
+  }
+  settingsSaveInFlight = true;
   const body = {
     soft_low_kcal: Number(document.getElementById("set-soft-low")?.value),
     soft_high_kcal: Number(document.getElementById("set-soft-high")?.value),
@@ -2008,18 +2091,55 @@ async function saveKcalBudgetFromForm() {
     sex: document.getElementById("set-sex")?.value || "",
     age_years: Number(document.getElementById("set-age")?.value) || 0,
     height_cm: Number(document.getElementById("set-height")?.value) || 0,
+    sedentary_discount_percent: Number(document.getElementById("set-sedentary-discount")?.value) || 0,
   };
-  const data = await api("/settings", { method: "PUT", body: JSON.stringify(body) });
-  state.kcalBudget = mergedKcalBudget(data.settings);
-  if (state.overview) state.overview.settings = data.settings;
-  toast("Settings saved");
-  if (state.tab === "days") await loadDays();
-  if (state.tab === "today" && state.date) {
-    const dayData = await api(`/days/${encodeURIComponent(state.date)}`);
-    state.day = dayData.day || state.day;
-    fillDraftFromDay(state.day);
+  try {
+    const data = await api("/settings", { method: "PUT", body: JSON.stringify(body) });
+    state.kcalBudget = mergedKcalBudget(data.settings);
+    if (state.overview) state.overview.settings = data.settings;
+    if (!quiet) toast("Settings saved");
+    if (state.tab === "days") await loadDays();
+    if (state.tab === "today" && state.date) {
+      const dayData = await api(`/days/${encodeURIComponent(state.date)}`);
+      state.day = dayData.day || state.day;
+      fillDraftFromDay(state.day);
+    }
+    if (state.tab === "settings") {
+      refreshEnergyHintFromDom();
+      refreshDaysKcalChartIfPresent();
+    } else {
+      render();
+    }
+  } finally {
+    settingsSaveInFlight = false;
   }
-  render();
+}
+
+function refreshEnergyHintFromDom() {
+  const elHint = document.getElementById("energy-estimate");
+  if (!elHint) return;
+  const wrap = document.createElement("div");
+  wrap.innerHTML = energyEstimateHtml(settingsEnergyBudgetFromForm(), latestEnergyKg());
+  const next = wrap.firstElementChild;
+  if (next) elHint.replaceWith(next);
+}
+
+function bindSettingsAutoSave() {
+  const ids = [
+    "set-soft-low", "set-soft-high", "set-gain-min",
+    "set-sodium-low", "set-sodium-high", "set-sodium-ceiling",
+    "set-meal-margin", "set-diff-green", "set-diff-yellow", "set-diff-orange",
+    "set-sex", "set-age", "set-height", "set-sedentary-discount",
+  ];
+  const schedule = () => scheduleSettingsSave();
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", schedule);
+    if (el.type === "range" || el.type === "number") {
+      el.addEventListener("input", schedule);
+    }
+  });
 }
 
 async function reloadAfterDataImport(scope) {
@@ -2328,25 +2448,27 @@ function bind() {
     tr.addEventListener("click", () => openFoodForm(tr.dataset.openFood).catch((e) => toast(e.message)));
   });
 
-  document.getElementById("settings-save")?.addEventListener("click", () => {
-    saveKcalBudgetFromForm().catch((e) => toast(e.message));
-  });
-  const refreshEnergyHint = () => {
-    const elHint = document.getElementById("energy-estimate");
-    if (!elHint) return;
-    const wrap = document.createElement("div");
-    wrap.innerHTML = energyEstimateHtml({
-      sex: document.getElementById("set-sex")?.value || "",
-      age_years: Number(document.getElementById("set-age")?.value) || 0,
-      height_cm: Number(document.getElementById("set-height")?.value) || 0,
-    }, latestEnergyKg());
-    const next = wrap.firstElementChild;
-    if (next) elHint.replaceWith(next);
+  bindSettingsAutoSave();
+  const refreshEnergyHint = () => refreshEnergyHintFromDom();
+  const onSedentaryDiscountInput = () => {
+    const inp = document.getElementById("set-sedentary-discount");
+    const lab = document.getElementById("set-sedentary-discount-val");
+    if (inp && lab) lab.textContent = `${inp.value}%`;
+    refreshEnergyHint();
+  };
+  const onMealMarginInput = () => {
+    const inp = document.getElementById("set-meal-margin");
+    const lab = document.getElementById("set-meal-margin-val");
+    if (inp && lab) lab.textContent = `${inp.value}%`;
   };
   ["set-sex", "set-age", "set-height"].forEach((id) => {
     document.getElementById(id)?.addEventListener("input", refreshEnergyHint);
     document.getElementById(id)?.addEventListener("change", refreshEnergyHint);
   });
+  document.getElementById("set-sedentary-discount")?.addEventListener("input", onSedentaryDiscountInput);
+  document.getElementById("set-sedentary-discount")?.addEventListener("change", onSedentaryDiscountInput);
+  document.getElementById("set-meal-margin")?.addEventListener("input", onMealMarginInput);
+  document.getElementById("set-meal-margin")?.addEventListener("change", onMealMarginInput);
   document.getElementById("settings-repair-days")?.addEventListener("click", async () => {
     const ok = await confirmModal({
       title: "Repair all days?",
@@ -2763,11 +2885,13 @@ function syncStockFormFromDOM() {
   ensureStockMealDraft();
   const f = state.stockForm;
   const root = stockFormRoot();
-  f.set = state.mealDraft.stock.items[0];
+  const set = state.mealDraft.stock.items[0];
+  f.set = set;
   f.prepared_date = root.querySelector("#stock-date")?.value?.trim() || f.prepared_date;
-  f.batch_grams = root.querySelector("#stock-batch")?.value ?? f.batch_grams;
-  f.remaining_grams = root.querySelector("#stock-left")?.value ?? f.remaining_grams;
-  f.active = root.querySelector("#stock-active")?.checked !== false;
+  f.batch_grams = stockDerivedBatchGrams(set, f);
+  const hidden = root.querySelector("#stock-batch");
+  if (hidden) hidden.value = f.batch_grams > 0 ? String(f.batch_grams) : "";
+  f.active = stockFormRoot().querySelector("#stock-active")?.checked !== false;
   f.notes = root.querySelector("#stock-notes")?.value ?? f.notes;
 }
 
@@ -2780,13 +2904,14 @@ async function saveStock() {
   syncStockFormFromDOM();
   const f = state.stockForm;
   const set = f.set;
-  const batch = numOrUndef(f.batch_grams);
+  const batch = stockDerivedBatchGrams(set, f);
   const setName = (set?.name || "").trim();
-  if (!setName || !batch) {
-    toast("Set name and batch grams required");
+  if (!setName || !batch || batch <= 0) {
+    toast("Set name and at least one ingredient with grams required");
     return false;
   }
-  const left = numOrUndef(f.remaining_grams) ?? batch;
+  f.batch_grams = batch;
+  const left = f.id ? (numOrUndef(f.remaining_grams) ?? batch) : batch;
   const items = serializeStockParts(set);
   const body = {
     name: setName,

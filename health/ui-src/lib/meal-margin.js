@@ -7,7 +7,7 @@ export function mealMarginPercent(settings) {
   return n;
 }
 
-/** Apply +margin% to a slot total (kcal + sodium). */
+/** Apply +margin% once to a day total (kcal + sodium). */
 export function applyMealMarginTotals(totals, marginPercent) {
   if (!totals || !marginPercent || marginPercent <= 0) return totals;
   const f = 1 + marginPercent / 100;
