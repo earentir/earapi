@@ -60,7 +60,8 @@ export function periodRangeSelectHtml(selectId, curValue, esc, { label = "Period
       `<option value="${esc(id)}"${id === cur ? " selected" : ""}>${esc(optLabel)}</option>`,
   ).join("");
   const cap = label
-    ? `<span>${esc(label)}</span>`
-    : `<span class="sr-only">Range</span>`;
-  return `<label class="field period-range-field${label ? "" : " period-range-field--bare"}">${cap}<select id="${esc(selectId)}" class="period-range-select">${opts}</select></label>`;
+    ? `<span class="label-text text-xs uppercase opacity-60">${esc(label)}</span>`
+    : "";
+  const aria = label ? "" : ` aria-label="${esc("Period")}"`;
+  return `<label class="form-control min-w-0 flex-1">${cap}<select id="${esc(selectId)}" class="select select-bordered select-sm w-full"${aria}>${opts}</select></label>`;
 }

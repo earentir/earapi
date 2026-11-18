@@ -1,6 +1,12 @@
 import { SLOTS } from "./constants.js";
 import { esc } from "./strings.js";
 
+const DOT_BADGE = {
+  ok: "badge-success",
+  warn: "badge-warning",
+  bad: "badge-error",
+};
+
 function mealRawSkipped(raw) {
   const s = (raw || "").trim();
   if (!s || s === "-" || s === "\u2014") return true;
@@ -99,37 +105,32 @@ export function dayCardStatus(day, { gapItems = [], gapIndex = null, weights = [
   return { level: "ok", title, lines, optionalLines: optional };
 }
 
-function statusTipMarkup(st) {
+function statusTipText(st) {
   const optional = st?.optionalLines || [];
   const lines = st?.lines?.length ? st.lines : (optional.length ? [] : ["All set"]);
-  const tipText = [...optional, ...lines].join("\n");
-  const html = [
-    ...optional.map((t) => `<span class="day-status-tip-optional">${esc(t)}</span>`),
-    ...lines.map((ln) => esc(ln)),
-  ].join("<br>");
-  const tip = html
-    ? `<span class="day-card-status-tip" role="tooltip">${html}</span>`
-    : "";
-  return { tipText, tip };
+  return [...optional, ...lines].join("\n");
 }
 
-/** Dot on Days list cards (same popup as Today when there is something to show). */
-export function dayCardListDotMarkup(st) {
-  const { tipText, tip } = statusTipMarkup(st);
+function dotMarkup(st, { list = false } = {}) {
   const level = st?.level || "ok";
-  const dotClass = level === "warn" ? "day-card-status--warn" : level === "bad" ? "day-card-status--bad" : "day-card-status--ok";
+  const tipText = statusTipText(st);
+  const badge = DOT_BADGE[level] || DOT_BADGE.ok;
   const label = level === "ok" ? "Day status" : level === "warn" ? "Needs attention" : "Needs fix";
-  const hover = tip ? " day-card-status--hoverable" : "";
-  return `<span class="day-card-status day-card-status--list ${dotClass}${hover}" title="${esc(tipText)}" aria-label="${esc(label)}: ${esc(tipText)}">${tip}</span>`;
+  const pos = list ? "tooltip-left" : "tooltip-bottom";
+  const extra = list
+    ? "absolute right-2 bottom-2"
+    : "relative inline-flex shrink-0";
+  return `<span class="tooltip ${pos} ${extra}" data-tip="${esc(tipText)}">
+    <span class="badge badge-xs ${badge} border-2 border-base-100" role="status" tabindex="0" title="${esc(tipText)}" aria-label="${esc(label)}: ${esc(tipText)}"></span>
+  </span>`;
 }
 
-/** Rich hover tooltip on Today header (not on list cards). */
+/** Dot on Days list cards. */
+export function dayCardListDotMarkup(st) {
+  return dotMarkup(st, { list: true });
+}
+
+/** Dot on Today header. */
 export function dayStatusDotMarkup(st) {
-  const { tipText, tip } = statusTipMarkup(st);
-  if (!st || st.level === "ok") {
-    return `<span class="day-title-status day-card-status day-card-status--ok day-card-status--hoverable" role="status" tabindex="0" title="${esc(tipText)}" aria-label="Day status: ${esc(tipText)}">${tip}</span>`;
-  }
-  const dotClass = st.level === "warn" ? "day-card-status--warn" : "day-card-status--bad";
-  const dotLabel = st.level === "warn" ? "Needs attention" : "Needs fix";
-  return `<span class="day-title-status day-card-status ${dotClass} day-card-status--hoverable" role="status" tabindex="0" title="${esc(tipText)}" aria-label="${esc(dotLabel)}: ${esc(st.title)}">${tip}</span>`;
+  return dotMarkup(st || { level: "ok", lines: ["All set"] }, { list: false });
 }

@@ -36,9 +36,9 @@ function scopeLabel(scope) {
 export function dataBackupBarHtml(scope, { fullBackup = false, extra = "" } = {}) {
   const lab = fullBackup ? "All data" : scopeLabel(scope);
   const s = fullBackup ? "all" : scope;
-  return `<div class="row data-backup-bar" style="gap:0.45rem;margin:0 0 0.65rem;flex-wrap:wrap;align-items:center">
-    <button type="button" class="btn" data-export-json="${s}">Export ${lab}</button>
-    <label class="btn import-json-label">Import ${lab}
+  return `<div class="flex flex-wrap gap-2 items-center mb-3">
+    <button type="button" class="btn btn-outline btn-sm" data-export-json="${s}">Export ${lab}</button>
+    <label class="btn btn-outline btn-sm">Import ${lab}
       <input type="file" accept="application/json,.json" hidden data-import-json="${s}">
     </label>
     ${extra}

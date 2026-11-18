@@ -26,20 +26,20 @@ export function mergedLegacyDiffBands(settings) {
   };
 }
 
-/** @returns {string} meal-band--* class */
+/** @returns {string} band key green|yellow|orange|red */
 export function legacyDiffBandClass(delta, settings) {
   const d = Math.abs(Number(delta) || 0);
-  if (d <= 0) return "meal-band--green";
+  if (d <= 0) return "green";
   const b = mergedLegacyDiffBands(settings);
-  if (d < b.legacy_diff_green_lt) return "meal-band--green";
-  if (d < b.legacy_diff_yellow_lt) return "meal-band--yellow";
-  if (d < b.legacy_diff_orange_lt) return "meal-band--orange";
-  return "meal-band--red";
+  if (d < b.legacy_diff_green_lt) return "green";
+  if (d < b.legacy_diff_yellow_lt) return "yellow";
+  if (d < b.legacy_diff_orange_lt) return "orange";
+  return "red";
 }
 
 export function catalogLegacyDeltaBand(computed, legacy, settings) {
   const leg = Number(legacy) || 0;
-  if (leg <= 0) return "meal-band--muted";
+  if (leg <= 0) return "muted";
   const cur = Number(computed) || 0;
   return legacyDiffBandClass(cur - leg, settings);
 }

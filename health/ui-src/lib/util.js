@@ -1,5 +1,9 @@
 import { esc } from "./strings.js";
 
+const FM_INP = "input input-bordered input-sm w-full";
+const FM_TEXTAREA = "textarea textarea-bordered textarea-sm w-full min-h-16";
+const FM_LABEL = "label-text text-xs uppercase opacity-60";
+
 export { esc };
 
 export function fmt(n, d = 0) {
@@ -83,19 +87,19 @@ export function formatTimeTyping(raw) {
 
 export function dateField(id, value, opts = {}) {
   const label = opts.label !== false;
-  const labelHtml = label ? `<span>Date</span>` : "";
-  return `<label class="field date-field${label ? "" : " date-field-plain"}">${labelHtml}
-    <div class="date-nav">
-      <button type="button" class="btn" data-shift="${esc(id)}" data-delta="-1" title="Previous day">‹</button>
-      <input type="text" class="iso-date mono" id="${esc(id)}" value="${esc(value)}" placeholder="YYYY-MM-DD" maxlength="10" inputmode="numeric" spellcheck="false" autocomplete="off" lang="en">
-      <button type="button" class="btn" data-shift="${esc(id)}" data-delta="1" title="Next day">›</button>
+  const labelHtml = label ? `<span class="label-text text-xs uppercase opacity-60">Date</span>` : "";
+  return `<label class="form-control min-w-0 max-w-xs">${labelHtml}
+    <div class="join w-full">
+      <button type="button" class="btn btn-outline btn-sm join-item" data-shift="${esc(id)}" data-delta="-1" title="Previous day">‹</button>
+      <input type="text" class="input input-bordered input-sm join-item w-full min-w-0 font-mono tabular-nums" id="${esc(id)}" value="${esc(value)}" placeholder="YYYY-MM-DD" maxlength="10" inputmode="numeric" spellcheck="false" autocomplete="off" lang="en" data-iso-date>
+      <button type="button" class="btn btn-outline btn-sm join-item" data-shift="${esc(id)}" data-delta="1" title="Next day">›</button>
     </div>
   </label>`;
 }
 
 /** Wire text inputs to stay ISO date / 24h time (no native date/time pickers). */
 export function bindIsoInputs(root = document) {
-  root.querySelectorAll("input.iso-date").forEach((inp) => {
+  root.querySelectorAll("input[data-iso-date]").forEach((inp) => {
     inp.addEventListener("input", () => {
       const next = formatDateTyping(inp.value);
       if (next !== inp.value) {
@@ -141,35 +145,36 @@ export function formModal({
   return new Promise((resolve) => {
     const fieldLabel = (f) => {
       const val = f.value ?? "";
-      const cls = f.grow ? "field grow" : f.tight ? "field tight" : "field";
+      const cls = f.grow ? "form-control flex-[2] min-w-0" : f.tight ? "form-control min-w-0 max-w-[7rem]" : "form-control min-w-0 flex-1";
       if (f.type === "checkbox") {
         const checked = val === true || val === "true" || val === "1";
-        return `<label class="check"><input type="checkbox" data-fm="${esc(f.key)}" ${checked ? "checked" : ""}> ${esc(f.label)}</label>`;
+        return `<label class="label cursor-pointer justify-start gap-2 py-1 min-h-0"><input type="checkbox" class="checkbox checkbox-sm" data-fm="${esc(f.key)}" ${checked ? "checked" : ""}><span class="label-text">${esc(f.label)}</span></label>`;
       }
       if (f.type === "textarea") {
-        return `<label class="${cls}"><span>${esc(f.label)}</span><textarea data-fm="${esc(f.key)}" rows="${f.rows || 2}">${esc(String(val))}</textarea></label>`;
+        return `<label class="${cls}"><span class="${FM_LABEL}">${esc(f.label)}</span><textarea class="${FM_TEXTAREA}" data-fm="${esc(f.key)}" rows="${f.rows || 2}">${esc(String(val))}</textarea></label>`;
       }
       const mode = f.type === "decimal" ? ' inputmode="decimal"' : f.type === "numeric" ? ' inputmode="numeric"' : "";
-      const dateAttrs = f.date ? ' class="iso-date mono" maxlength="10" placeholder="YYYY-MM-DD" autocomplete="off" lang="en"' : "";
-      return `<label class="${cls}"><span>${esc(f.label)}</span><input type="text" data-fm="${esc(f.key)}" value="${esc(String(val))}"${mode}${dateAttrs}></label>`;
+      const dateExtra = f.date ? ' maxlength="10" placeholder="YYYY-MM-DD" autocomplete="off" lang="en" data-iso-date' : "";
+      const inpCls = f.date ? FM_INP.replace("input-sm", "input-sm font-mono tabular-nums") : FM_INP;
+      return `<label class="${cls}"><span class="${FM_LABEL}">${esc(f.label)}</span><input type="text" class="${inpCls}" data-fm="${esc(f.key)}" value="${esc(String(val))}"${mode}${dateExtra}></label>`;
     };
     const fieldHtml = fields.map((f) => {
       if (f.type === "row" && f.fields?.length) {
-        return `<div class="form-modal-row row">${f.fields.map(fieldLabel).join("")}</div>`;
+        return `<div class="flex flex-wrap gap-2 items-end">${f.fields.map(fieldLabel).join("")}</div>`;
       }
       return fieldLabel(f);
     }).join("");
     const deleteBtn = deleteLabel && onDelete
-      ? `<button type="button" class="btn danger" data-fm-delete>${esc(deleteLabel)}</button>`
+      ? `<button type="button" class="btn btn-outline btn-error btn-sm" data-fm-delete>${esc(deleteLabel)}</button>`
       : "";
-    const overlay = el(`<div class="modal modal-open modal-middle entity-form-modal" role="dialog" aria-modal="true">
-      <div class="modal-box modal-box-form">
-        <h3 class="text-lg font-bold form-modal-title">${esc(title)}</h3>
-        <div class="form-modal-fields stack-fields">${fieldHtml}</div>
-        <div class="modal-action form-modal-actions">
+    const overlay = el(`<div class="modal modal-open modal-middle" role="dialog" aria-modal="true">
+      <div class="modal-box max-w-lg">
+        <h3 class="text-lg font-bold">${esc(title)}</h3>
+        <div class="flex flex-col gap-2 py-2">${fieldHtml}</div>
+        <div class="modal-action">
           ${deleteBtn}
-          <button type="button" class="btn" data-fm-cancel>${esc(cancelLabel)}</button>
-          <button type="button" class="btn primary" data-fm-submit>${esc(submitLabel)}</button>
+          <button type="button" class="btn btn-outline btn-sm" data-fm-cancel>${esc(cancelLabel)}</button>
+          <button type="button" class="btn btn-primary btn-sm" data-fm-submit>${esc(submitLabel)}</button>
         </div>
       </div>
       <div class="modal-backdrop modal-backdrop-inert" aria-hidden="true"></div>
@@ -227,25 +232,27 @@ export function customModal({
   cancelLabel = "Cancel",
   deleteLabel,
   extraClass = "",
+  boxClass = "modal-box w-11/12 max-w-5xl",
   onMount,
   onSubmit,
   onDelete,
 }) {
   return new Promise((resolve) => {
     const deleteBtn = deleteLabel && onDelete
-      ? `<button type="button" class="btn danger" data-cm-delete>${esc(deleteLabel)}</button>`
+      ? `<button type="button" class="btn btn-outline btn-error btn-sm" data-cm-delete>${esc(deleteLabel)}</button>`
       : "";
     const head = titleAside
-      ? `<div class="modal-head-row"><h3 class="text-lg font-bold">${esc(title)}</h3><div class="modal-head-aside">${titleAside}</div></div>`
+      ? `<div class="flex flex-wrap items-baseline justify-between gap-2"><h3 class="text-lg font-bold">${esc(title)}</h3><div class="text-sm text-base-content/70">${titleAside}</div></div>`
       : `<h3 class="text-lg font-bold">${esc(title)}</h3>`;
-    const overlay = el(`<div class="modal modal-open modal-middle ${extraClass}" role="dialog" aria-modal="true">
-      <div class="modal-box modal-box-form modal-box-wide">
+    const modalCls = extraClass ? ` ${extraClass}` : "";
+    const overlay = el(`<div class="modal modal-open modal-middle${modalCls}" role="dialog" aria-modal="true">
+      <div class="${boxClass}">
         ${head}
-        <div class="custom-modal-body">${bodyHtml}</div>
+        <div class="py-2" data-modal-body>${bodyHtml}</div>
         <div class="modal-action">
           ${deleteBtn}
-          <button type="button" class="btn" data-cm-cancel>${esc(cancelLabel)}</button>
-          <button type="button" class="btn primary" data-cm-submit>${esc(submitLabel)}</button>
+          <button type="button" class="btn btn-outline btn-sm" data-cm-cancel>${esc(cancelLabel)}</button>
+          <button type="button" class="btn btn-primary btn-sm" data-cm-submit>${esc(submitLabel)}</button>
         </div>
       </div>
       <div class="modal-backdrop modal-backdrop-inert" aria-hidden="true"></div>
@@ -290,8 +297,8 @@ export function confirmModal({ title, message, confirmLabel = "Confirm", cancelL
         <h3 class="text-lg font-bold" id="confirm-modal-title">${esc(title)}</h3>
         <div class="py-3 text-sm">${message}</div>
         <div class="modal-action">
-          <button type="button" class="btn" data-confirm-cancel>${esc(cancelLabel)}</button>
-          <button type="button" class="btn ${danger ? "danger" : "primary"}" data-confirm-ok>${esc(confirmLabel)}</button>
+          <button type="button" class="btn btn-outline btn-sm" data-confirm-cancel>${esc(cancelLabel)}</button>
+          <button type="button" class="btn btn-sm ${danger ? "btn-outline btn-error" : "btn-primary"}" data-confirm-ok>${esc(confirmLabel)}</button>
         </div>
       </div>
       <div class="modal-backdrop modal-backdrop-inert" aria-hidden="true"></div>

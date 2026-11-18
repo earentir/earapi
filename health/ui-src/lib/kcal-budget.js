@@ -1,3 +1,10 @@
+const KCAL_BAR_BORDER = {
+  green: " border-s-4 border-success",
+  yellow: " border-s-4 border-warning",
+  orange: " border-s-4 border-warning",
+  red: " border-s-4 border-error",
+};
+
 /** Defaults from Energy baseline in Health Tracker - Misc.md (1,500-1,700 band; 2,200 gain). */
 export const DEFAULT_KCAL_BUDGET = {
   soft_low_kcal: 1500,
@@ -109,11 +116,10 @@ export function kcalBudgetBandLabel(band) {
 
 export function dayKcalBarParts(band, title = "") {
   if (!band || band === "none") {
-    return { hostClass: "", barClass: "", title: "" };
+    return { borderClass: "", title: "" };
   }
   return {
-    hostClass: " day-kcal-bar-host",
-    barClass: band,
+    borderClass: KCAL_BAR_BORDER[band] || "",
     title: title || kcalBudgetBandLabel(band),
   };
 }

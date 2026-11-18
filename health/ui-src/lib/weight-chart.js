@@ -1,4 +1,9 @@
 import { fmt } from "./util.js";
+const CHART_HOST = "w-full h-48 min-h-40 relative";
+
+function cssColor(varName) {
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim() || "currentColor";
+}
 
 function weightSeries(weights) {
   return (weights || [])
@@ -28,19 +33,19 @@ export function mountWeightChart(host, weights, opts = {}) {
 function paintWeightChart(host, weights, opts = {}) {
   const series = weightSeries(weights);
   host.replaceChildren();
+  host.className = `${CHART_HOST}`;
   if (series.length < 2) {
-    host.innerHTML = `<p class="muted" style="margin:0;padding:0.5rem 0">Add at least two weigh-ins to see the trend line.</p>`;
+    host.innerHTML = `<p class="text-base-content/60 m-0 py-2">Add at least two weigh-ins to see the trend line.</p>`;
     return;
   }
 
-  const tip = document.createElement("div");
-  tip.className = "weight-chart-tip";
-  tip.setAttribute("role", "tooltip");
-  tip.hidden = true;
+  const stroke = cssColor("--color-primary");
+  const gridStroke = cssColor("--color-base-content");
+  const gridOpacity = "0.15";
 
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNS, "svg");
-  svg.setAttribute("class", "weight-chart-svg");
+  svg.setAttribute("class", "w-full h-full block");
   const pad = { l: 48, r: 20, t: 20, b: 36 };
   const W = Math.max(host.clientWidth || 640, 280);
   const H = Math.max(host.clientHeight || 192, 160);
@@ -63,7 +68,6 @@ function paintWeightChart(host, weights, opts = {}) {
   const yAt = (kg) => pad.t + (1 - (kg - yMin) / yRange) * innerH;
 
   const grid = document.createElementNS(svgNS, "g");
-  grid.setAttribute("class", "weight-chart-grid");
   for (let i = 0; i <= 4; i++) {
     const y = pad.t + (i / 4) * innerH;
     const line = document.createElementNS(svgNS, "line");
@@ -71,12 +75,16 @@ function paintWeightChart(host, weights, opts = {}) {
     line.setAttribute("x2", String(W - pad.r));
     line.setAttribute("y1", String(y));
     line.setAttribute("y2", String(y));
+    line.setAttribute("stroke", gridStroke);
+    line.setAttribute("stroke-opacity", gridOpacity);
     grid.appendChild(line);
     const val = yMax - (i / 4) * yRange;
     const label = document.createElementNS(svgNS, "text");
     label.setAttribute("x", String(pad.l - 6));
     label.setAttribute("y", String(y + 4));
-    label.setAttribute("class", "weight-chart-axis");
+    label.setAttribute("fill", "currentColor");
+    label.setAttribute("opacity", "0.55");
+    label.setAttribute("font-size", "10");
     label.setAttribute("text-anchor", "end");
     label.textContent = fmt(val, 1);
     grid.appendChild(label);
@@ -84,8 +92,9 @@ function paintWeightChart(host, weights, opts = {}) {
   svg.appendChild(grid);
 
   const poly = document.createElementNS(svgNS, "polyline");
-  poly.setAttribute("class", "weight-chart-line");
   poly.setAttribute("fill", "none");
+  poly.setAttribute("stroke", stroke);
+  poly.setAttribute("stroke-width", "2");
   poly.setAttribute(
     "points",
     series.map((s, i) => `${xAt(i)},${yAt(Number(s.kg))}`).join(" "),
@@ -93,10 +102,8 @@ function paintWeightChart(host, weights, opts = {}) {
   svg.appendChild(poly);
 
   const dots = document.createElementNS(svgNS, "g");
-  dots.setAttribute("class", "weight-chart-points");
   series.forEach((s, i) => {
     const g = document.createElementNS(svgNS, "g");
-    g.setAttribute("class", "weight-chart-point");
     g.setAttribute("tabindex", "0");
     const cx = xAt(i);
     const cy = yAt(Number(s.kg));
@@ -104,50 +111,34 @@ function paintWeightChart(host, weights, opts = {}) {
     hit.setAttribute("cx", String(cx));
     hit.setAttribute("cy", String(cy));
     hit.setAttribute("r", "12");
-    hit.setAttribute("class", "weight-chart-hit");
+    hit.setAttribute("fill", "transparent");
     const dot = document.createElementNS(svgNS, "circle");
     dot.setAttribute("cx", String(cx));
     dot.setAttribute("cy", String(cy));
     dot.setAttribute("r", "4");
-    dot.setAttribute("class", "weight-chart-dot");
+    dot.setAttribute("fill", stroke);
     g.appendChild(hit);
     g.appendChild(dot);
-    const showTip = (evt) => {
-      tip.hidden = false;
-      const bmr = opts.bmrForKg?.(s.kg);
-      tip.textContent = Number.isFinite(bmr)
-        ? `${s.date}, ${fmt(s.kg, 1)} kg, BMR ${fmt(bmr, 0)}`
-        : `${s.date}, ${fmt(s.kg, 1)} kg`;
-      const hostRect = host.getBoundingClientRect();
-      const x = evt?.clientX != null ? evt.clientX - hostRect.left : cx;
-      const y = evt?.clientY != null ? evt.clientY - hostRect.top : cy;
-      tip.style.left = `${Math.min(Math.max(x, 8), hostRect.width - 8)}px`;
-      tip.style.top = `${Math.max(y - 36, 4)}px`;
-    };
-    const hideTip = () => {
-      tip.hidden = true;
-    };
-    g.addEventListener("mouseenter", showTip);
-    g.addEventListener("mousemove", showTip);
-    g.addEventListener("mouseleave", hideTip);
-    g.addEventListener("focus", () => {
-      const r = dot.getBoundingClientRect();
-      showTip({ clientX: r.left + r.width / 2, clientY: r.top });
-    });
-    g.addEventListener("blur", hideTip);
+    const title = document.createElementNS(svgNS, "title");
+    const bmr = opts.bmrForKg?.(s.kg);
+    title.textContent = Number.isFinite(bmr)
+      ? `${s.date}, ${fmt(s.kg, 1)} kg, BMR ${fmt(bmr, 0)}`
+      : `${s.date}, ${fmt(s.kg, 1)} kg`;
+    g.appendChild(title);
     dots.appendChild(g);
   });
   svg.appendChild(dots);
 
   const xLabels = document.createElementNS(svgNS, "g");
-  xLabels.setAttribute("class", "weight-chart-xlabels");
   const labelIdx = new Set([0, series.length - 1]);
   if (series.length > 2) labelIdx.add(Math.floor(series.length / 2));
   labelIdx.forEach((i) => {
     const t = document.createElementNS(svgNS, "text");
     t.setAttribute("x", String(xAt(i)));
     t.setAttribute("y", String(H - 8));
-    t.setAttribute("class", "weight-chart-axis");
+    t.setAttribute("fill", "currentColor");
+    t.setAttribute("opacity", "0.55");
+    t.setAttribute("font-size", "10");
     t.setAttribute("text-anchor", "middle");
     t.textContent = series[i].date.slice(5);
     xLabels.appendChild(t);
@@ -155,12 +146,13 @@ function paintWeightChart(host, weights, opts = {}) {
   svg.appendChild(xLabels);
 
   host.appendChild(svg);
-  host.appendChild(tip);
 }
 
 export function weightChartSectionHtml() {
-  return `<section class="card weight-chart-card">
-    <h2 style="margin:0 0 0.5rem;font-size:1rem">Weight trend</h2>
-    <div class="weight-chart-host" data-weight-chart></div>
+  return `<section class="card card-bordered bg-base-100 shadow-sm border-base-300">
+    <div class="card-body p-4 gap-2">
+    <h2 class="card-title text-base">Weight trend</h2>
+    <div class="${CHART_HOST}" data-weight-chart></div>
+    </div>
   </section>`;
 }

@@ -40,7 +40,15 @@ export async function api(path, opts = {}) {
     data = { error: text };
   }
   if (!res.ok) {
-    const err = new Error(data?.error || res.statusText);
+    let msg = data?.error || res.statusText || "request failed";
+    if (typeof msg === "string" && (msg.includes("<html") || msg.includes("<!DOCTYPE"))) {
+      msg = res.status === 504
+        ? "Health API timed out (504). Try again; if it keeps happening, redeploy earapi with the latest build."
+        : `Health API error (${res.status})`;
+    } else if (typeof msg === "string" && msg.length > 240) {
+      msg = `${msg.slice(0, 240)}…`;
+    }
+    const err = new Error(msg);
     err.status = res.status;
     err.data = data;
     throw err;

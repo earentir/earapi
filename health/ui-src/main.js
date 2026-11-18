@@ -8,8 +8,7 @@ bootIfAuthed();
 
 const appEl = document.getElementById("app");
 appEl?.addEventListener("click", (e) => {
-  if (e.target.closest?.(".day-card-status--hoverable")) return;
-  if (e.target.closest?.(".day-legacy-hover")) return;
+  if (e.target.closest?.("[data-day-legacy-hover]")) return;
   const card = e.target.closest?.("[data-open-day]");
   if (!card?.dataset.openDay) return;
   e.preventDefault();
@@ -17,7 +16,7 @@ appEl?.addEventListener("click", (e) => {
 });
 appEl?.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" && e.key !== " ") return;
-  if (e.target.closest?.(".day-legacy-hover")) return;
+  if (e.target.closest?.("[data-day-legacy-hover]")) return;
   const card = e.target.closest?.("[data-open-day]");
   if (!card?.dataset.openDay) return;
   e.preventDefault();

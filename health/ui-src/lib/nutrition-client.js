@@ -1,6 +1,14 @@
 import { api } from "./api.js";
 import { state } from "./state.js";
 import { SLOTS } from "./constants.js";
+const BAND_TEXT = {
+  muted: "text-base-content/50",
+  green: "text-success",
+  yellow: "text-warning",
+  orange: "text-warning",
+  red: "text-error",
+  none: "",
+};
 
 let computeTimer = null;
 
@@ -16,8 +24,7 @@ export function dayDisplay(d) {
 
 export function mealBandClass(band) {
   if (!band || band === "none") return "";
-  if (band === "muted") return "meal-band--muted";
-  return `meal-band--${band}`;
+  return BAND_TEXT[band] || BAND_TEXT.muted;
 }
 
 export function computedMealItem(slot, idx, partIdx) {
