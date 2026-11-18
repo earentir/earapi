@@ -48,7 +48,7 @@ import { weightChartSectionHtml, mountWeightChart } from "./weight-chart.js";
 import { daysKcalChartSectionHtml, mountDaysKcalChart } from "./days-kcal-chart.js";
 import { daysRangeQueryString, periodRangeSelectHtml, recordsInRange } from "./days-range.js";
 import { energyFromInputs, estimatedMassDeltaGrams, kgOnOrBefore } from "./energy.js";
-const MAIN_WRAP = "max-w-[980px] mx-auto px-4 pt-[5px] pb-12";
+const MAIN_WRAP = "max-w-[980px] mx-auto px-4 pt-[10px] pb-12";
 const NAV_SHELL = "sticky top-0 z-20 border-b border-base-300 bg-base-200";
 const NAVBAR = "navbar max-w-[980px] mx-auto w-full min-h-12 bg-base-200 px-2";
 const TABS = "tabs tabs-boxed tabs-sm w-full overflow-x-auto flex-nowrap";
