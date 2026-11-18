@@ -19,7 +19,7 @@ import { themeSelectHtml, saveTheme } from "./theme.js";
 import { state, emptyItem, emptySlot, emptyDraft, emptyStockSet, emptyStockForm } from "./state.js";
 import {
   fmt, el, pad2, isoDate, parseISODate, shiftISODate, parseTime24, dateField,
-  bindIsoInputs, confirmModal, formModal, customModal, weekdayNameForISODate,
+  bindIsoInputs, confirmModal, formModal, customModal, weekdayNameForISODate, daisyToggle, isoDateInputHtml,
 } from "./util.js";
 import { sodiumMgFromSaltG, saltGFromSodiumMg } from "./eu-salt.js";
 import { api, loadAuth, saveAuth, toast } from "./api.js";
@@ -43,12 +43,12 @@ import { matchStockLotByName } from "./stock-match.js";
 import {
   DEFAULT_KCAL_BUDGET, mergedKcalBudget, dayKcalBarParts, dayIntakeBand, dayBandCounts,
 } from "./kcal-budget.js";
-import { dataBackupBarHtml, bindDataBackupHandlers } from "./data-backup.js";
+import { dataBackupBarHtml, dataBackupButtonsHtml, bindDataBackupHandlers } from "./data-backup.js";
 import { weightChartSectionHtml, mountWeightChart } from "./weight-chart.js";
 import { daysKcalChartSectionHtml, mountDaysKcalChart } from "./days-kcal-chart.js";
 import { daysRangeQueryString, periodRangeSelectHtml, recordsInRange } from "./days-range.js";
 import { energyFromInputs, estimatedMassDeltaGrams, kgOnOrBefore } from "./energy.js";
-const MAIN_WRAP = "max-w-[980px] mx-auto px-4 pb-12";
+const MAIN_WRAP = "max-w-[980px] mx-auto px-4 pt-[5px] pb-12";
 const NAV_SHELL = "sticky top-0 z-20 border-b border-base-300 bg-base-200";
 const NAVBAR = "navbar max-w-[980px] mx-auto w-full min-h-12 bg-base-200 px-2";
 const TABS = "tabs tabs-boxed tabs-sm w-full overflow-x-auto flex-nowrap";
@@ -58,7 +58,7 @@ const ITEM_ROW_HEAD = `${ITEM_ROW} text-xs uppercase opacity-60 mb-1`;
 const MEAL_PARTS = "parts min-w-0";
 const MEAL_INP_H = "h-[2.1rem] min-h-[2.1rem]";
 const MEAL_ICON_SPACER = "meal-row-icon-spacer";
-const MEAL_ROW_ICON = "meal-row-icon";
+const MEAL_ROW_ICON = "btn btn-square btn-sm btn-outline meal-row-icon";
 /** ⊞ renders tiny in most fonts at 1.5rem — fixed-size grid SVG */
 const MEAL_ICON_MAKE_SET = `<svg class="meal-row-icon-graphic" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z"/></svg>`;
 const CARD_SECTION = "card card-bordered bg-base-100 shadow-sm border-base-300";
@@ -207,49 +207,27 @@ function computedDayTotalsFromDraft() {
   return dayTotalsView();
 }
 
-/** Sum legacy margin totals from meal slots that still have markdown raw (partial day). */
-function slotLegacyTotalsAggregated() {
-  let kcal = 0;
-  let sodium_mg = 0;
-  let slotsWithLegacy = 0;
-  for (const slot of SLOTS) {
-    const leg = parseSlotLegacyFromRaw(mealSlotRaw(slot));
-    if (leg.kcal <= 0 && leg.sodium_mg <= 0) continue;
-    kcal += leg.kcal;
-    sodium_mg += leg.sodium_mg;
-    slotsWithLegacy += 1;
+function dayLegacyTotalsForDots() {
+  const d = legacyDayForDiff();
+  const leg = d?.legacy_totals;
+  const lk = Number(leg?.kcal) || 0;
+  const ln = Number(leg?.sodium_mg) || 0;
+  if (lk <= 0 && ln <= 0) return { kcal: 0, sodium_mg: 0 };
+  const tot = d?.totals || dayTotalsView();
+  const tk = Number(tot?.kcal) || 0;
+  const tn = Number(tot?.sodium_mg) || 0;
+  // Catalog saves used to copy totals into legacy; that is not a markdown day column.
+  if (Math.round(lk) === Math.round(tk) && Math.round(ln) === Math.round(tn)) {
+    return { kcal: 0, sodium_mg: 0 };
   }
-  return { kcal, sodium_mg, slotsWithLegacy };
-}
-
-function catalogTotalsForSlotsWithLegacy() {
-  const day = nutritionDay();
-  let kcal = 0;
-  let sodium_mg = 0;
-  for (const slot of SLOTS) {
-    const leg = parseSlotLegacyFromRaw(mealSlotRaw(slot));
-    if (leg.kcal <= 0 && leg.sodium_mg <= 0) continue;
-    const m = day?.meals?.[slot];
-    kcal += Number(m?.kcal) || 0;
-    sodium_mg += Number(m?.sodium_mg) || 0;
-  }
-  return { kcal, sodium_mg };
+  return { kcal: lk, sodium_mg: ln };
 }
 
 function dayLegacyComparePair(field) {
   const isNa = field === "sodium";
-  const agg = slotLegacyTotalsAggregated();
-  if (agg.slotsWithLegacy > 0) {
-    const cur = catalogTotalsForSlotsWithLegacy();
-    return {
-      partial: true,
-      leg: isNa ? agg.sodium_mg : agg.kcal,
-      cur: isNa ? cur.sodium_mg : cur.kcal,
-    };
-  }
-  const leg = legacyDayForDiff()?.legacy_totals;
-  const legVal = isNa ? Number(leg?.sodium_mg) : Number(leg?.kcal);
+  const leg = dayLegacyTotalsForDots();
   const totals = dayTotalsView();
+  const legVal = isNa ? leg.sodium_mg : leg.kcal;
   const curVal = isNa ? Number(totals.sodium_mg) : Number(totals.kcal);
   return { partial: false, leg: legVal, cur: curVal };
 }
@@ -416,9 +394,10 @@ function daySummaryPanel() {
       </div>
       ${statusRow}
       <div class="stats stats-vertical sm:stats-horizontal w-full max-w-full bg-base-200/40 rounded-box">${slotRows}</div>
-      <div class="card-actions justify-start flex-wrap gap-2">
+      <div class="card-actions justify-start flex-wrap gap-2 items-center">
         ${dateField("day-date", state.date, { label: false })}
-        <button type="button" class="btn btn-outline btn-error btn-sm" id="delete-day">Delete day</button>
+        ${dataBackupButtonsHtml("days")}
+        <button type="button" class="btn btn-error btn-sm" id="delete-day">Delete day</button>
       </div>
     </div>
   </section>`;
@@ -427,7 +406,6 @@ function daySummaryPanel() {
 function todayView() {
   const d = state.mealDraft;
   const box = el(`<div class="flex flex-col gap-4">
-    ${dataBackupBarHtml("days")}
     ${daySummaryPanel()}
     <div class="flex flex-col gap-4">
       ${SLOTS.map((slot) => slotCard(slot, d[slot])).join("")}
@@ -890,7 +868,7 @@ function todayDayCardStatus() {
 }
 
 function rowIconBtn(attrs, title, glyph, extraClass = "") {
-  const warn = extraClass.includes("warn") ? " meal-row-icon--warn" : "";
+  const warn = extraClass.includes("warn") ? " btn-warning" : "";
   const part = attrs.includes("data-eject-part") ? " meal-part-eject" : "";
   const inner = glyph.includes("<svg") ? glyph : esc(glyph);
   return `<button type="button" class="${MEAL_ROW_ICON}${warn}${part}" title="${esc(title)}" aria-label="${esc(title)}" ${attrs}>${inner}</button>`;
@@ -927,7 +905,7 @@ function nameGramsRow(slot, i, it, partIdx) {
     ? `<span class="text-right font-mono tabular-nums text-sm" title="${setPartCount} ingredients, ${fmt(setGrams, 0)} g total">${fmt(setGrams, 0)} <span class="text-base-content/60">g, ${setPartCount} items</span></span>`
     : `<input class="${MEAL_INP_NUM} ${MEAL_INP_H}" data-field="grams" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.grams)}" placeholder="${gramsPh}" inputmode="decimal" title="grams total (or leave blank with × count)">`;
   const issueBtn = nutritionIssue
-    ? (nutritionIssue.missingFood ? "meal-row-icon--warn" : "meal-row-icon--warn")
+    ? "warn"
     : "";
   const ejectPart = isPart
     ? rowIconBtn(
@@ -986,8 +964,8 @@ function nameGramsRow(slot, i, it, partIdx) {
       : "",
   ].filter(Boolean).join(" ");
   const delBtn = isPart
-    ? `<button type="button" class="${MEAL_ROW_ICON} justify-self-end" title="Delete ingredient" data-del-part="${esc(slot)}:${i}:${partIdx}">×</button>`
-    : `<button type="button" class="${MEAL_ROW_ICON} justify-self-end" title="Delete" data-del="${esc(slot)}:${i}">×</button>`;
+    ? `<button type="button" class="${MEAL_ROW_ICON} btn-error justify-self-end" title="Delete ingredient" data-del-part="${esc(slot)}:${i}:${partIdx}">×</button>`
+    : `<button type="button" class="${MEAL_ROW_ICON} btn-error justify-self-end" title="Delete" data-del="${esc(slot)}:${i}">×</button>`;
   const rowClsAll = [
     ...(isPart ? [] : [rowCls]),
     nutritionIssue
@@ -1303,7 +1281,7 @@ function stockBatchEditorHtml() {
     <p class="text-sm text-base-content/60 mt-2 m-0">Batch total: <span class="font-mono tabular-nums" id="stock-batch-display">${batchG > 0 ? `${fmt(batchG, 0)} g` : "add ingredient grams"}</span></p>
     ${f?.id ? `<p class="text-xs text-base-content/60 mt-1 m-0">In fridge: <span class="font-mono tabular-nums">${fmt(leftNow, 0)} g</span> left (updated by logging and use, not here)</p>` : ""}
     <div class="flex flex-wrap gap-2 items-end mt-2">
-      <label class="form-control min-w-0"><span class="${FF_LABEL}">Prepared</span><input type="text" class="${FF_INP} font-mono tabular-nums" id="stock-date" data-iso-date value="${esc(f.prepared_date)}" placeholder="YYYY-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off" lang="en"></label>
+      <label class="form-control min-w-0"><span class="${FF_LABEL}">Prepared</span>${isoDateInputHtml({ id: "stock-date", value: f.prepared_date, extraClass: FF_INP })}</label>
     </div>
     <label class="form-control min-w-0 flex-1 mt-2"><span class="${FF_LABEL}">Notes (optional per-100g in text)</span><textarea id="stock-notes" class="${FF_TEXTAREA}" rows="2">${esc(f.notes)}</textarea></label>`;
 }
@@ -1455,7 +1433,7 @@ async function openStockBatchModal() {
     title,
     titleAside: `<label class="label cursor-pointer gap-2" title="Active in fridge">
       <span class="label-text text-sm">Active</span>
-      <input type="checkbox" id="stock-active" class="toggle toggle-sm toggle-primary" ${activeOn ? "checked" : ""}>
+      ${daisyToggle({ checked: activeOn, extraAttrs: 'id="stock-active"' })}
     </label>`,
     bodyHtml: stockBatchEditorHtml(),
     submitLabel: editing ? "Save changes" : "Save batch",
@@ -1518,7 +1496,7 @@ function stockView() {
       <div class="card-body gap-2 p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <label class="label cursor-pointer gap-2 py-0 min-h-0" title="Active in fridge">
-          <input type="checkbox" class="toggle toggle-sm toggle-primary" data-stock-active="${esc(lot.id)}" ${active ? "checked" : ""}>
+          ${daisyToggle({ checked: active, extraAttrs: `data-stock-active="${esc(lot.id)}"` })}
           <span class="label-text text-xs">${active ? "On" : "Off"}</span>
         </label>
         <h3 class="card-title text-base flex-1 m-0">${esc(lot.name)}</h3>
@@ -2129,7 +2107,7 @@ function foodFormVariantsSectionHtml(f) {
         </div>
         <label class="label cursor-pointer gap-2 py-0 min-h-0 shrink-0">
           <span class="label-text text-xs">Cooked fields</span>
-          <input type="checkbox" class="toggle toggle-sm toggle-primary" data-ff-v-cooked-enabled${cookedOn ? " checked" : ""}>
+          ${daisyToggle({ checked: cookedOn, extraAttrs: "data-ff-v-cooked-enabled" })}
         </label>
       </div>
       ${foodVariantCutPanelHtml("skinless", v.skinless, true)}
@@ -2359,7 +2337,7 @@ function foodFormFieldsHtml(f) {
           <span class="${FF_LABEL}" data-ff-na-label>${useSalt ? "Salt g total" : "Sodium mg total"}</span>
           <label class="label cursor-pointer gap-1.5 py-0 min-h-0" title="EU label: salt (NaCl) or sodium mg — one field; toggle switches unit (values are not converted).">
             <span class="label-text-alt text-xs opacity-60">Na</span>
-            <input type="checkbox" class="toggle toggle-sm toggle-primary" data-ff-use-salt${useSalt ? " checked" : ""} aria-label="Use salt g instead of sodium mg">
+            ${daisyToggle({ checked: useSalt, extraAttrs: 'data-ff-use-salt aria-label="Use salt g instead of sodium mg"' })}
             <span class="label-text-alt text-xs opacity-60">salt</span>
           </label>
         </span>
@@ -2527,7 +2505,7 @@ function weightView() {
     </div>
     <div class="card card-bordered bg-base-100 shadow-sm mt-3 overflow-x-auto">
       <table class="table table-zebra table-sm">
-        <thead><tr><th>Date</th><th>kg</th><th>BMR</th><th>RHR</th><th>Protocol</th><th>Note</th></tr></thead>
+        <thead><tr><th>Date</th><th>kg</th><th>BMR</th><th>RHR (bpm)</th><th>Protocol</th><th>Note</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="6" class="text-base-content/60">No weigh-ins</td></tr>`}</tbody>
       </table>
     </div>
@@ -2704,9 +2682,9 @@ function settingsView() {
       <h2 class="card-title text-base">Backup &amp; restore</h2>
       <p class="text-sm text-base-content/60 m-0">Full JSON export (foods, aliases, days, stock, weight, settings). Import here replaces everything; use tab-specific import on Foods/Days/etc. to merge only that section.</p>
       ${dataBackupBarHtml("all", { fullBackup: true })}
-      <label class="label cursor-pointer justify-start gap-2 py-1 min-h-0 mt-2">
-        <input type="checkbox" class="checkbox checkbox-sm" id="import-all-replace">
-        <span class="label-text text-sm">Full import replaces all data (dangerous)</span>
+      <label class="flex items-center gap-2 cursor-pointer py-1 mt-2 select-none">
+        ${daisyToggle({ extraAttrs: 'id="import-all-replace"' })}
+        <span class="text-sm">Full import replaces all data (dangerous)</span>
       </label>
     </div></section>
     <section class="${SETTINGS_CARD}"><div class="card-body gap-3 p-4">
@@ -2884,7 +2862,10 @@ function bind() {
         return;
       }
       const next = shiftISODate(cur, Number(b.dataset.delta));
-      if (inp) inp.value = next;
+      if (inp) {
+        inp.value = next;
+        inp.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       if (id === "day-date") {
         state.date = next;
         syncTodayInUrl();
@@ -3470,9 +3451,9 @@ async function openWeightForm(id) {
       {
         type: "row",
         fields: [
-          { key: "date", label: "Date", value: w?.date || state.date, date: true, tight: true },
+          { key: "date", label: "Date", value: w?.date || state.date, date: true },
           { key: "kg", label: "kg", value: w?.kg ?? "", type: "decimal", tight: true },
-          { key: "rhr", label: "RHR", value: w?.rhr_bpm ?? "", type: "numeric", tight: true },
+          { key: "rhr", label: "RHR (bpm)", value: w?.rhr_bpm ?? "", type: "numeric", tight: true, tooltip: "Resting heart rate in beats per minute" },
         ],
       },
       { key: "note", label: "Note", value: w?.note || "", grow: true },
@@ -3684,7 +3665,7 @@ function askStockAction(lot, kind) {
           </select>
         </label>
         <label class="form-control w-full"><span class="${FF_LABEL}">Date</span>
-          <input type="text" id="sd-date" class="${FF_INP} font-mono tabular-nums" data-iso-date value="${esc(state.date || "")}" placeholder="YYYY-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off" lang="en">
+          ${isoDateInputHtml({ id: "sd-date", value: state.date || "", extraClass: FF_INP })}
         </label>` : ""}
         <div class="modal-action">
           <button type="button" class="btn btn-outline btn-sm" data-sd-cancel>Cancel</button>

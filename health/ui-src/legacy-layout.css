@@ -12,11 +12,6 @@ body {
   line-height: 1.45;
 }
 
-button, input, select, textarea {
-  font: inherit;
-  color: inherit;
-}
-
 a { color: var(--accent); }
 
 .wrap {
@@ -62,16 +57,7 @@ a { color: var(--accent); }
 }
 
 .health-tabs .tab {
-  text-transform: none;
-  font-size: 0.82rem;
-  min-height: 2rem;
-  height: auto;
-  padding: 0.35rem 0.65rem;
   white-space: nowrap;
-}
-
-.health-tabs .tab.tab-active {
-  font-weight: 600;
 }
 
 .brand { color: var(--accent); font-weight: 700; letter-spacing: -0.03em; }
@@ -83,24 +69,11 @@ a { color: var(--accent); }
   flex-wrap: wrap;
 }
 
-.nav button, .btn {
-  background: var(--bg-panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0.38rem 0.7rem;
-  cursor: pointer;
+.nav {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
 }
-
-.nav button.active, .btn.primary {
-  background: var(--accent);
-  color: #1a1e12;
-  border-color: var(--accent);
-  font-weight: 600;
-}
-
-.btn.danger { border-color: var(--warn); color: var(--warn); }
-.btn.ghost { background: transparent; }
-.btn:disabled { opacity: 0.5; cursor: default; }
 
 .muted { color: var(--muted); }
 .ok { color: var(--ok); }
@@ -116,13 +89,6 @@ h2 { font-size: 1.05rem; margin: 0 0 0.7rem; }
 }
 @media (min-width: 800px) {
   .grid.two { grid-template-columns: 1fr 1fr; }
-}
-
-.card {
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 0.9rem 1rem;
 }
 
 .row {
@@ -182,36 +148,6 @@ input.iso-time {
   text-transform: uppercase;
 }
 
-textarea {
-  min-height: 4.2rem;
-  resize: vertical;
-  line-height: 1.4;
-}
-
-input, select, textarea {
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0.42rem 0.55rem;
-}
-
-input:focus, select:focus, textarea:focus {
-  outline: 2px solid var(--accent-dim);
-  border-color: var(--accent-dim);
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.92rem;
-}
-th, td {
-  text-align: left;
-  padding: 0.4rem 0.35rem;
-  border-bottom: 1px solid var(--line);
-  vertical-align: top;
-}
-th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover { background: var(--bg-panel); }
 td.mono, .date-iso { white-space: nowrap; }
@@ -499,13 +435,6 @@ td.mono, .date-iso { white-space: nowrap; }
 .period-range-select,
 .days-range-select {
   width: 100%;
-  min-height: 2rem;
-  font-size: 0.82rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--rounded-btn, 0.4rem);
-  border: 1px solid color-mix(in oklab, var(--color-base-content) 18%, transparent);
-  background: var(--color-base-100);
-  color: var(--color-base-content);
 }
 .weight-period-row {
   margin: 0 0 0.65rem;
@@ -632,12 +561,6 @@ td.mono, .date-iso { white-space: nowrap; }
 .add-to-set {
   flex: 0 0 auto;
   max-width: 6.5rem;
-  font-size: 0.72rem;
-  padding: 0.32rem 0.35rem;
-  background: var(--bg-panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--muted);
 }
 .cell-grams {
   width: 100%;
@@ -662,18 +585,6 @@ td.mono, .date-iso { white-space: nowrap; }
   width: 2.1rem;
   height: 2.1rem;
   padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1rem;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.item-row--needs-data .btn.icon-btn.icon-btn--warn {
-  border-color: #e6940a;
-  color: #e6940a;
-  background: color-mix(in oklab, #e6940a 14%, var(--bg-panel));
 }
 
 #app .item-row--needs-data .cell-per100g {
@@ -710,8 +621,6 @@ td.mono, .date-iso { white-space: nowrap; }
   flex: 1 1 4.5rem;
   min-width: 0;
   max-width: 6rem;
-  padding: 0.25rem 0.4rem;
-  font-size: 0.72rem;
 }
 .per100-tag {
   flex: 0 0 auto;
@@ -951,14 +860,6 @@ button.row-vert-label.pick-tag:hover {
   min-width: 5.5rem;
 }
 .day-stat-wide { flex: 1 1 12rem; min-width: 10rem; }
-.stat-label {
-  color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-.stat-value { font-size: 0.94rem; line-height: 1.25; }
 .stat-unit {
   font-size: 0.78rem;
   color: var(--muted);
@@ -1035,16 +936,6 @@ button.row-vert-label.pick-tag:hover {
   .day-slot-stats { grid-template-columns: 1fr; }
 }
 
-.toast {
-  position: fixed;
-  bottom: 1rem;
-  right: 1rem;
-  background: var(--bg-panel);
-  border: 1px solid var(--accent-dim);
-  border-radius: 10px;
-  padding: 0.55rem 0.8rem;
-  box-shadow: 0 8px 30px rgba(0,0,0,.35);
-}
 
 .login {
   max-width: 26rem;

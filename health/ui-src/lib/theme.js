@@ -17,5 +17,5 @@ export function themeSelectHtml(current) {
   const opts = THEMES.map(
     (t) => `<option value="${t}"${t === current ? " selected" : ""}>${t}</option>`
   ).join("");
-  return `<select class="select select-bordered select-sm w-28 max-w-full" id="theme-pick" title="Theme" aria-label="Theme">${opts}</select>`;
+  return `<select class="select select-bordered select-sm" id="theme-pick" title="Theme" aria-label="Theme">${opts}</select>`;
 }

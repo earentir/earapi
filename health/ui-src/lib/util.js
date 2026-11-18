@@ -1,10 +1,14 @@
 import { esc } from "./strings.js";
 
-const FM_INP = "input input-bordered input-sm w-full";
-const FM_TEXTAREA = "textarea textarea-bordered textarea-sm w-full min-h-16";
+const FM_INP = "input input-bordered input-sm w-full max-w-full min-w-0";
+const FM_TEXTAREA = "textarea textarea-bordered textarea-sm w-full min-h-12";
 const FM_LABEL = "label-text text-xs uppercase opacity-60";
 
 export { esc };
+
+export function daisyToggle({ checked = false, extraAttrs = "" } = {}) {
+  return `<input type="checkbox" class="toggle"${checked ? " checked" : ""} ${extraAttrs}>`;
+}
 
 export function fmt(n, d = 0) {
   if (n == null || n === "") return "-";
@@ -85,21 +89,69 @@ export function formatTimeTyping(raw) {
   return `${digits.slice(0, 2)}:${digits.slice(2)}`;
 }
 
+const ISO_CAL_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>`;
+
+/** Visible value is always YYYY-MM-DD. Calendar button calls the native picker via showPicker(). */
+export function isoDateInputHtml({
+  id,
+  value = "",
+  extraClass = "input input-bordered input-sm iso-date-text",
+  extraAttrs = "",
+  join = false,
+} = {}) {
+  const v = esc(String(value || ""));
+  const visClass = join
+    ? "input input-bordered input-sm font-mono tabular-nums"
+    : `${extraClass} font-mono tabular-nums`;
+  const idAttr = id ? ` id="${esc(id)}"` : "";
+  const vis = `<span class="iso-date-field join-item"><input type="text"${idAttr} class="${visClass}" value="${v}" placeholder="YYYY-MM-DD" maxlength="10" size="10" inputmode="numeric" spellcheck="false" autocomplete="off" lang="en" data-iso-date ${extraAttrs}></span>`;
+  const pick = `<button type="button" class="btn btn-square btn-sm btn-outline ${join ? "join-item" : ""} shrink-0" data-iso-date-pick title="Pick date" aria-label="Pick date">${ISO_CAL_ICON}</button>
+      <input type="date" class="iso-date-picker-host" tabindex="-1" value="${v}" data-iso-date-picker aria-hidden="true">`;
+  if (join) return `${vis}${pick}`;
+  return `<div class="join w-auto relative">${vis}${pick}</div>`;
+}
+
 export function dateField(id, value, opts = {}) {
   const label = opts.label !== false;
   const labelHtml = label ? `<span class="label-text text-xs uppercase opacity-60">Date</span>` : "";
-  return `<label class="form-control min-w-0 max-w-xs">${labelHtml}
-    <div class="join w-full">
-      <button type="button" class="btn btn-outline btn-sm join-item" data-shift="${esc(id)}" data-delta="-1" title="Previous day">‹</button>
-      <input type="text" class="input input-bordered input-sm join-item w-full min-w-0 font-mono tabular-nums" id="${esc(id)}" value="${esc(value)}" placeholder="YYYY-MM-DD" maxlength="10" inputmode="numeric" spellcheck="false" autocomplete="off" lang="en" data-iso-date>
-      <button type="button" class="btn btn-outline btn-sm join-item" data-shift="${esc(id)}" data-delta="1" title="Next day">›</button>
+  return `<label class="form-control w-auto shrink-0">${labelHtml}
+    <div class="join w-auto relative">
+      <button type="button" class="btn btn-square btn-sm btn-outline join-item" data-shift="${esc(id)}" data-delta="-1" title="Previous day">‹</button>
+      ${isoDateInputHtml({ id, value, join: true })}
+      <button type="button" class="btn btn-square btn-sm btn-outline join-item" data-shift="${esc(id)}" data-delta="1" title="Next day">›</button>
     </div>
   </label>`;
 }
 
-/** Wire text inputs to stay ISO date / 24h time (no native date/time pickers). */
+function isoDateWrap(inp) {
+  return inp.closest(".join, label") || inp.parentElement;
+}
+
+/** Wire ISO date text (always YYYY-MM-DD) plus hidden native picker, and 24h time. */
 export function bindIsoInputs(root = document) {
   root.querySelectorAll("input[data-iso-date]").forEach((inp) => {
+    if (inp.dataset.isoBound) return;
+    inp.dataset.isoBound = "1";
+    const wrap = isoDateWrap(inp);
+    const picker = wrap?.querySelector("input[data-iso-date-picker]") || null;
+    const pickBtn = wrap?.querySelector("[data-iso-date-pick]") || null;
+    const syncPicker = () => {
+      const ok = parseISODate(inp.value);
+      if (ok && picker) picker.value = ok;
+    };
+    const openPicker = (e) => {
+      e?.preventDefault();
+      e?.stopPropagation();
+      syncPicker();
+      if (!picker) return;
+      try {
+        if (typeof picker.showPicker === "function") picker.showPicker();
+        else picker.click();
+      } catch {
+        picker.focus();
+        picker.click();
+      }
+    };
     inp.addEventListener("input", () => {
       const next = formatDateTyping(inp.value);
       if (next !== inp.value) {
@@ -107,11 +159,21 @@ export function bindIsoInputs(root = document) {
         inp.value = next;
         if (pos != null) inp.setSelectionRange(next.length, next.length);
       }
+      const ok = parseISODate(inp.value);
+      if (ok && picker) picker.value = ok;
     });
     inp.addEventListener("blur", () => {
       const ok = parseISODate(inp.value);
       if (ok) inp.value = ok;
       else if (inp.value.trim()) inp.value = formatDateTyping(inp.value);
+      syncPicker();
+    });
+    pickBtn?.addEventListener("click", openPicker);
+    picker?.addEventListener("change", () => {
+      if (!picker.value) return;
+      inp.value = picker.value;
+      inp.dispatchEvent(new Event("input", { bubbles: true }));
+      inp.dispatchEvent(new Event("change", { bubbles: true }));
     });
   });
   root.querySelectorAll("input.iso-time").forEach((inp) => {
@@ -145,22 +207,33 @@ export function formModal({
   return new Promise((resolve) => {
     const fieldLabel = (f) => {
       const val = f.value ?? "";
-      const cls = f.grow ? "form-control flex-[2] min-w-0" : f.tight ? "form-control min-w-0 max-w-[7rem]" : "form-control min-w-0 flex-1";
+      const cls = f.date
+        ? "flex flex-col w-auto shrink-0"
+        : f.grow
+          ? "flex flex-col flex-[2] min-w-0"
+          : f.tight
+            ? "flex flex-col min-w-0 w-[6.5rem]"
+            : "flex flex-col min-w-0 flex-1";
+      const hint = f.tooltip
+        ? `<span class="tooltip tooltip-bottom before:max-w-56" data-tip="${esc(f.tooltip)}"><button type="button" class="btn btn-ghost btn-xs btn-circle min-h-0 h-5 w-5 p-0 text-base-content/50" tabindex="-1" title="${esc(f.tooltip)}" aria-label="${esc(f.tooltip)}">?</button></span>`
+        : "";
+      const cap = `<span class="${FM_LABEL} inline-flex items-center gap-1">${esc(f.label)}${hint}</span>`;
       if (f.type === "checkbox") {
         const checked = val === true || val === "true" || val === "1";
-        return `<label class="label cursor-pointer justify-start gap-2 py-1 min-h-0"><input type="checkbox" class="checkbox checkbox-sm" data-fm="${esc(f.key)}" ${checked ? "checked" : ""}><span class="label-text">${esc(f.label)}</span></label>`;
+        return `<label class="flex items-center gap-3 cursor-pointer py-1 select-none">${daisyToggle({ checked, extraAttrs: `data-fm="${esc(f.key)}"` })}<span class="text-sm">${esc(f.label)}</span></label>`;
       }
       if (f.type === "textarea") {
-        return `<label class="${cls}"><span class="${FM_LABEL}">${esc(f.label)}</span><textarea class="${FM_TEXTAREA}" data-fm="${esc(f.key)}" rows="${f.rows || 2}">${esc(String(val))}</textarea></label>`;
+        return `<label class="${cls}">${cap}<textarea class="${FM_TEXTAREA}" data-fm="${esc(f.key)}" rows="${f.rows || 2}">${esc(String(val))}</textarea></label>`;
+      }
+      if (f.date) {
+        return `<label class="${cls}">${cap}${isoDateInputHtml({ value: String(val), extraClass: FM_INP, extraAttrs: `data-fm="${esc(f.key)}"` })}</label>`;
       }
       const mode = f.type === "decimal" ? ' inputmode="decimal"' : f.type === "numeric" ? ' inputmode="numeric"' : "";
-      const dateExtra = f.date ? ' maxlength="10" placeholder="YYYY-MM-DD" autocomplete="off" lang="en" data-iso-date' : "";
-      const inpCls = f.date ? FM_INP.replace("input-sm", "input-sm font-mono tabular-nums") : FM_INP;
-      return `<label class="${cls}"><span class="${FM_LABEL}">${esc(f.label)}</span><input type="text" class="${inpCls}" data-fm="${esc(f.key)}" value="${esc(String(val))}"${mode}${dateExtra}></label>`;
+      return `<label class="${cls}">${cap}<input type="text" class="${FM_INP}" data-fm="${esc(f.key)}" value="${esc(String(val))}"${mode}></label>`;
     };
     const fieldHtml = fields.map((f) => {
       if (f.type === "row" && f.fields?.length) {
-        return `<div class="flex flex-wrap gap-2 items-end">${f.fields.map(fieldLabel).join("")}</div>`;
+        return `<div class="flex flex-wrap gap-2 items-end w-full min-w-0">${f.fields.map(fieldLabel).join("")}</div>`;
       }
       return fieldLabel(f);
     }).join("");
@@ -168,10 +241,10 @@ export function formModal({
       ? `<button type="button" class="btn btn-outline btn-error btn-sm" data-fm-delete>${esc(deleteLabel)}</button>`
       : "";
     const overlay = el(`<div class="modal modal-open modal-middle" role="dialog" aria-modal="true">
-      <div class="modal-box max-w-lg">
+      <div class="modal-box max-w-lg overflow-x-hidden">
         <h3 class="text-lg font-bold">${esc(title)}</h3>
-        <div class="flex flex-col gap-2 py-2">${fieldHtml}</div>
-        <div class="modal-action">
+        <div class="flex flex-col gap-3 mt-3">${fieldHtml}</div>
+        <div class="modal-action mt-2">
           ${deleteBtn}
           <button type="button" class="btn btn-outline btn-sm" data-fm-cancel>${esc(cancelLabel)}</button>
           <button type="button" class="btn btn-primary btn-sm" data-fm-submit>${esc(submitLabel)}</button>
@@ -217,7 +290,7 @@ export function formModal({
     bindIsoInputs(overlay);
     const first = overlay.querySelector("[data-fm]");
     first?.focus();
-    if (first?.select) first.select();
+    if (first?.select && first.type !== "date" && first.type !== "checkbox") first.select();
   });
 }
 

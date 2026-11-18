@@ -33,14 +33,28 @@ function scopeLabel(scope) {
   }
 }
 
-export function dataBackupBarHtml(scope, { fullBackup = false, extra = "" } = {}) {
+const ICON_EXPORT = `<svg class="size-4" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2zm7-16v8.17l2.59-2.58L16 11l-4 4-4-4 1.41-1.41L11 12.17V4h2z"/></svg>`;
+const ICON_IMPORT = `<svg class="size-4" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2zm7-18 4 4-1.41 1.41L13 7.83V16h-2V7.83L9.41 9.41 8 8l4-4z"/></svg>`;
+
+/** Export + import controls (icon buttons). */
+export function dataBackupButtonsHtml(scope, { fullBackup = false, icons = true } = {}) {
   const lab = fullBackup ? "All data" : scopeLabel(scope);
   const s = fullBackup ? "all" : scope;
-  return `<div class="flex flex-wrap gap-2 items-center mb-3">
-    <button type="button" class="btn btn-outline btn-sm" data-export-json="${s}">Export ${lab}</button>
+  if (!icons) {
+    return `<button type="button" class="btn btn-outline btn-sm" data-export-json="${s}">Export ${lab}</button>
     <label class="btn btn-outline btn-sm">Import ${lab}
       <input type="file" accept="application/json,.json" hidden data-import-json="${s}">
-    </label>
+    </label>`;
+  }
+  return `<button type="button" class="btn btn-square btn-outline btn-sm" data-export-json="${s}" title="Export ${lab}" aria-label="Export ${lab}">${ICON_EXPORT}</button>
+    <label class="btn btn-square btn-outline btn-sm m-0" title="Import ${lab}" aria-label="Import ${lab}">${ICON_IMPORT}
+      <input type="file" accept="application/json,.json" hidden data-import-json="${s}">
+    </label>`;
+}
+
+export function dataBackupBarHtml(scope, { fullBackup = false, extra = "", icons = true } = {}) {
+  return `<div class="flex flex-wrap gap-2 items-center mb-3">
+    ${dataBackupButtonsHtml(scope, { fullBackup, icons: fullBackup ? false : icons })}
     ${extra}
   </div>`;
 }
