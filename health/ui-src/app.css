@@ -168,38 +168,10 @@ body > .modal.modal-open .modal-box {
   white-space: normal;
 }
 
-/* Set block: one grid. Col 1 Set, 2 name, 3 +, 4 ×, then g / kcal / Na / delete. Parts skip col 1. */
-#app .item-block[data-meal-set] {
-  display: grid;
-  grid-template-columns: minmax(2.25rem, max-content) minmax(0, 1fr) 2.25rem 2.5rem 4rem 3.75rem 4rem 2.25rem;
-  column-gap: 0.375rem;
-  row-gap: 0.375rem;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-}
-@media (max-width: 640px) {
-  #app .item-block[data-meal-set] {
-    grid-template-columns: minmax(2.25rem, max-content) minmax(0, 1fr) 2.25rem 2.25rem 3rem 2.75rem 3rem 2.25rem;
-    column-gap: 0.25rem;
-  }
-}
 #app .item-block[data-meal-set] > .parts {
-  display: contents;
-}
-#app .item-block[data-meal-set] > .meal-set-row,
-#app .item-block[data-meal-set] [data-meal-part] {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: subgrid;
-  align-items: center;
-}
-#app .item-block[data-meal-set] [data-meal-part] > .meal-item-name {
-  grid-column: 2;
-}
-#app .item-block[data-meal-set] > .meal-set-row > .meal-row-icon-spacer {
-  width: auto;
-  min-width: 2.25rem;
+  margin: 0;
+  padding: 0;
+  border: none;
 }
 #app [data-meal-part] .meal-item-name--part {
   gap: 0.25rem;

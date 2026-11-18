@@ -53,9 +53,7 @@ const NAV_SHELL = "sticky top-0 z-20 border-b border-base-300 bg-base-200";
 const NAVBAR = "navbar max-w-[980px] mx-auto w-full min-h-12 bg-base-200 px-2";
 const TABS = "tabs tabs-boxed tabs-sm w-full overflow-x-auto flex-nowrap";
 const ITEM_ROW =
-  "grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem_2.5rem_4rem_3.75rem_4rem_2.25rem] gap-1.5 mb-1.5 items-center max-sm:grid-cols-[2.25rem_minmax(0,1fr)_2.25rem_2.25rem_3rem_2.75rem_3rem_2.25rem] max-sm:gap-1";
-/** Set header + parts share one parent grid (see app.css); no own column template. */
-const MEAL_SET_ROW = "meal-set-row";
+  "grid grid-cols-[2.25rem_minmax(0,1fr)_2.5rem_4rem_3.75rem_4rem_2.25rem] gap-1.5 mb-1.5 items-center max-sm:grid-cols-[2.25rem_minmax(0,1fr)_2.25rem_3rem_2.75rem_3rem_2.25rem] max-sm:gap-1";
 const ITEM_ROW_HEAD = `${ITEM_ROW} text-xs uppercase opacity-60 mb-1`;
 const MEAL_PARTS = "parts min-w-0";
 const MEAL_INP_H = "h-[2.1rem] min-h-[2.1rem]";
@@ -902,7 +900,6 @@ function mealItemsGridHead() {
   return `<div class="${ITEM_ROW_HEAD}" aria-hidden="true">
     <span class="${MEAL_ICON_SPACER}" aria-hidden="true"></span>
     <span>Name</span>
-    <span class="${MEAL_ICON_SPACER}" aria-hidden="true"></span>
     <span class="text-right">×</span>
     <span class="text-right">g</span>
     <span class="text-right">kcal</span>
@@ -911,7 +908,7 @@ function mealItemsGridHead() {
   </div>`;
 }
 
-function nameGramsRow(slot, i, it, partIdx, { inSet = false } = {}) {
+function nameGramsRow(slot, i, it, partIdx) {
   const isPart = partIdx != null;
   const needPer100g = needsPer100gRow(it);
   const nutritionIssue = itemNutritionIssue(slot, i, partIdx);
@@ -942,7 +939,7 @@ function nameGramsRow(slot, i, it, partIdx, { inSet = false } = {}) {
     : "";
   let lead;
   if (isPart) {
-    lead = "";
+    lead = `<span class="${MEAL_ICON_SPACER}" aria-hidden="true"></span>`;
   } else if (!itemHasParts(it)) {
     const leadTitle = nutritionIssue ? nutritionIssue.msg : "Convert to set";
     lead = rowIconBtn(`data-make-dish="${esc(slot)}:${i}"`, leadTitle, MEAL_ICON_MAKE_SET, issueBtn);
@@ -982,7 +979,6 @@ function nameGramsRow(slot, i, it, partIdx, { inSet = false } = {}) {
     ? `<input class="${MEAL_INP_NUM}" data-field="sodium_mg_per_100g" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.sodium_mg_per_100g)}" placeholder="Na/100g" inputmode="decimal" title="sodium mg per 100 g (not in catalog)">`
     : `<span class="text-right font-mono tabular-nums text-sm">${naDisplay}</span>`;
   const nameCell = nameInput;
-  const actionCell = addPartBtn || `<span class="${MEAL_ICON_SPACER}" aria-hidden="true"></span>`;
   const rowCls = [
     isSetHeader ? "bg-base-200/30 rounded-box" : "",
     nutritionIssue
@@ -999,11 +995,9 @@ function nameGramsRow(slot, i, it, partIdx, { inSet = false } = {}) {
       : "",
   ].filter(Boolean).join(" ");
   const nameColCls = isPart ? "meal-item-name meal-item-name--part" : "meal-item-name";
-  const rowGrid = inSet ? MEAL_SET_ROW : ITEM_ROW;
-  return `<div class="${rowGrid} ${rowClsAll}" data-meal-row${isPart ? " data-meal-part" : ""}${nutritionIssue ? ` title="${esc(nutritionIssue.msg)}"` : ""}>
+  return `<div class="${ITEM_ROW} ${rowClsAll}" data-meal-row${isPart ? " data-meal-part" : ""}${nutritionIssue ? ` title="${esc(nutritionIssue.msg)}"` : ""}>
     ${lead}
-    <div class="min-w-0 w-full flex items-center gap-1 ${nameColCls}">${ejectPart}${nameCell}</div>
-    ${actionCell}
+    <div class="min-w-0 w-full flex items-center gap-1 ${nameColCls}">${ejectPart}${nameCell}${addPartBtn}</div>
     ${countCell}
     ${gramsCell}
     ${kcalCellOut}
@@ -1029,12 +1023,11 @@ function isStockMealLine(it) {
 
 function itemBlock(slot, i, it) {
   const dish = itemHasParts(it) && !isStockMealLine(it);
-  const setOpt = dish ? { inSet: true } : {};
   const parts = dish
-    ? (it.parts || []).map((p, j) => nameGramsRow(slot, i, p, j, setOpt)).join("")
+    ? (it.parts || []).map((p, j) => nameGramsRow(slot, i, p, j)).join("")
     : "";
   return `<div class="item-block w-full min-w-0"${dish ? " data-meal-set" : ""}>
-    ${nameGramsRow(slot, i, it, null, setOpt)}
+    ${nameGramsRow(slot, i, it, null)}
     ${dish ? `<div class="${MEAL_PARTS}">${parts}</div>` : ""}
   </div>`;
 }
@@ -1220,9 +1213,9 @@ function partNutrientPreview(p) {
 function stockReadonlyPartRow(p) {
   const g = Number(p.grams) || 0;
   const { kcal, na } = partNutrientPreview(p);
-  return `<div class="${MEAL_SET_ROW}" data-meal-row data-meal-part>
-    <span class="min-w-0 truncate meal-item-name">${esc(p.name)}</span>
+  return `<div class="${ITEM_ROW}" data-meal-row data-meal-part>
     <span class="${MEAL_ICON_SPACER}" aria-hidden="true"></span>
+    <span class="min-w-0 truncate meal-item-name">${esc(p.name)}</span>
     <span class="text-right font-mono tabular-nums text-sm">—</span>
     <span class="text-right font-mono tabular-nums text-sm">${g ? fmt(g, 0) : "-"}</span>
     <span class="text-right font-mono tabular-nums text-sm">${kcal != null ? fmt(kcal, 0) : "-"}</span>
@@ -1238,10 +1231,9 @@ function stockLotIngredientsBlock(lot) {
   return `<div class="mt-2">
     ${mealItemsGridHead()}
     <div class="item-block w-full min-w-0" data-meal-set>
-      <div class="${MEAL_SET_ROW}" data-meal-row>
+      <div class="${ITEM_ROW}" data-meal-row>
         <span class="${MEAL_ICON_SPACER}"></span>
         <span class="text-base-content/60 text-sm meal-item-name">Ingredients (full batch)</span>
-        <span class="${MEAL_ICON_SPACER}" aria-hidden="true"></span>
         <span class="text-right text-base-content/60 text-sm">—</span>
         <span class="text-right font-mono tabular-nums text-sm" title="ingredient rows / recipe total g">${stats.count} ${fmt(stats.grams, 0)}</span>
         <span class="text-right font-mono tabular-nums text-sm">-</span>
