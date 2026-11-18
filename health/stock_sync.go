@@ -120,7 +120,7 @@ func (s *Store) scaleItemFromStockUnlockedVis(it *MealItem, active map[string]bo
 		if batchG > 0 && len(lot.Items) > 0 {
 			virtual := MealItem{Name: lot.Name, Grams: batchG, Parts: cloneStockRecipeParts(*lot)}
 			active[lot.ID] = true
-			_ = s.scaleDishUnlocked(&virtual, active)
+			_ = s.scaleDishUnlocked(&virtual, active, nil)
 			delete(active, lot.ID)
 			if virtual.Kcal > 0 {
 				it.Kcal = virtual.Kcal / batchG * it.Grams
@@ -137,7 +137,7 @@ func (s *Store) scaleItemFromStockUnlockedVis(it *MealItem, active map[string]bo
 	if len(it.Parts) > 0 && it.StockLotID != "" {
 		virtual := MealItem{Name: it.Name, Grams: it.Grams, Parts: it.Parts}
 		active[lot.ID] = true
-		_ = s.scaleDishUnlocked(&virtual, active)
+		_ = s.scaleDishUnlocked(&virtual, active, nil)
 		delete(active, lot.ID)
 		it.Kcal = virtual.Kcal
 		it.SodiumMg = virtual.SodiumMg

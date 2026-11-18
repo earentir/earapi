@@ -508,11 +508,19 @@ func (s *Service) handleFoodDelete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := st.DeleteFood(c.Param("id")); err != nil {
+	var body struct {
+		ReplaceWith string `json:"replace_with"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	replaceWith := strings.TrimSpace(body.ReplaceWith)
+	if replaceWith == "" {
+		replaceWith = strings.TrimSpace(c.Query("replace_with"))
+	}
+	if err := st.DeleteFood(c.Param("id"), replaceWith); err != nil {
 		writeStoreErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
+	c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id"), "replace_with": replaceWith})
 }
 
 func (s *Service) handleFoodsBatch(c *gin.Context) {
@@ -539,7 +547,7 @@ func (s *Service) handleFoodsBatch(c *gin.Context) {
 	}
 	deleted := make([]string, 0, len(body.Delete))
 	for _, id := range body.Delete {
-		if err := st.DeleteFood(id); err != nil {
+		if err := st.DeleteFood(id, ""); err != nil {
 			writeStoreErr(c, err)
 			return
 		}

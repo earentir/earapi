@@ -42,5 +42,6 @@ func mealItemKcalFromFood(it *MealItem, f *Food, kcalPer100 *float64) float64 {
 		}
 		return *kcalPer100 * n
 	}
-	return *kcalPer100 * it.Grams / 100
+	g := nutritionGramsForItem(it, f)
+	return *kcalPer100 * g / 100
 }

@@ -202,6 +202,16 @@ func migrateHealthDB(db *sql.DB) error {
 			}
 		}
 	}
+	if !tableHasColumn(db, "foods", "variants_json") {
+		if _, err := db.Exec(`ALTER TABLE foods ADD COLUMN variants_json TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if !tableHasColumn(db, "foods", "edible_fraction") {
+		if _, err := db.Exec(`ALTER TABLE foods ADD COLUMN edible_fraction REAL`); err != nil {
+			return err
+		}
+	}
 	var userVersion int
 	_ = db.QueryRow(`PRAGMA user_version`).Scan(&userVersion)
 	const mealItemCountRepairVersion = 1

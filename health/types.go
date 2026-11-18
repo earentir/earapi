@@ -28,6 +28,9 @@ type Food struct {
 	LabelKcal       *float64 `json:"label_kcal,omitempty"`        // kcal for LabelGrams (as printed)
 	LabelSodiumMg   *float64 `json:"label_sodium_mg,omitempty"`   // sodium mg for LabelGrams (as printed / from salt)
 	Notes           string   `json:"notes,omitempty"`
+	// EdibleFraction applies when variants are off: weighed grams × fraction for scaling (0–1).
+	EdibleFraction  *float64      `json:"edible_fraction,omitempty"`
+	Variants        *FoodVariants `json:"variants,omitempty"` // optional cut (skinless / with skin) × prep (raw / cooked)
 }
 
 // MealItem is one line in a structured meal log: a catalog food + grams,
@@ -43,6 +46,8 @@ type MealItem struct {
 	KcalPer100g     *float64   `json:"kcal_per_100g,omitempty"`      // create/update catalog on log
 	SodiumMgPer100g *float64   `json:"sodium_mg_per_100g,omitempty"` // create/update catalog on log
 	Note            string     `json:"note,omitempty"`
+	// EdibleFraction overrides catalog yield for this line (0–1); omit to use food default.
+	EdibleFraction  *float64   `json:"edible_fraction,omitempty"`
 	Parts           []MealItem `json:"parts,omitempty"`
 }
 

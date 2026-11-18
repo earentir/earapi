@@ -155,7 +155,7 @@ func (s *Store) refreshStockLotNutrients(lot *StockLot) {
 	if len(lot.Items) > 0 {
 		virtual := MealItem{Name: lot.Name, Grams: lot.BatchGrams, Parts: cloneStockRecipeParts(*lot)}
 		active := map[string]bool{lot.ID: true}
-		_ = s.scaleDishUnlocked(&virtual, active)
+		_ = s.scaleDishUnlocked(&virtual, active, nil)
 		if virtual.Kcal > 0 || virtual.SodiumMg > 0 {
 			k := virtual.Kcal / lot.BatchGrams * 100
 			n := virtual.SodiumMg / lot.BatchGrams * 100

@@ -48,7 +48,7 @@ func (s *Store) ApplyLog(req DayLog) (*DayLogResult, error) {
 	}
 
 	for _, id := range req.DeleteFoods {
-		if err := s.DeleteFood(id); err != nil {
+		if err := s.DeleteFood(id, ""); err != nil {
 			return nil, err
 		}
 		out.DeletedFoods = append(out.DeletedFoods, id)
@@ -222,8 +222,13 @@ func (s *Store) Overview(recentLimit int) Overview {
 	if w, ok := s.LatestWeight(); ok {
 		ov.LatestWeight = w
 	}
-	if d, ok := s.GetDay(today); ok {
-		ov.Day = d
+	// Today snapshot for the UI (stored totals + bands). Full rescale lives on GET /days/:date.
+	s.mu.Lock()
+	if raw, ok := s.readDayUnlocked(today); ok {
+		dd := *raw
+		s.attachDayDisplayLight(&dd)
+		ov.Day = &dd
 	}
+	s.mu.Unlock()
 	return ov
 }

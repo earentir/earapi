@@ -120,8 +120,8 @@ func TestLogHTTP(t *testing.T) {
 
 func TestEmbeddedUIFilesPresent(t *testing.T) {
 	root := "."
-	for _, name := range []string{"ui/index.html", "ui/app.js", "ui/styles.css"} {
-		if _, err := os.Stat(filepath.Join(root, name)); err != nil && name == "nope" {
+	for _, name := range []string{"ui/index.html", "ui/app.js", "ui/app.css"} {
+		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
 			t.Fatal(err)
 		}
 	}

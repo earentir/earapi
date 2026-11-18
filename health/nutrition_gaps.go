@@ -88,6 +88,19 @@ func (s *Store) itemNeedsNutrition(it MealItem, foods []Food) bool {
 	return itemNeedsNutritionLeaf(it, foods)
 }
 
+func itemBrokenFoodRef(it MealItem, s *Store) bool {
+	if s == nil {
+		return false
+	}
+	fid := strings.TrimSpace(it.FoodID)
+	if fid == "" {
+		return false
+	}
+	// GetDay / enrich paths already hold s.mu; do not lock here (would deadlock).
+	_, ok := s.foodByIDOrAliasUnlocked(fid)
+	return !ok
+}
+
 func itemNeedsNutritionLeaf(it MealItem, foods []Food) bool {
 	if it.Kcal > 0 || it.SodiumMg > 0 {
 		return false
@@ -155,6 +168,16 @@ func (s *Store) ListNutritionGaps(from, to string, itemLimit int) NutritionGaps 
 						walk(it.Parts, ref)
 						continue
 					}
+					if itemBrokenFoodRef(it, s) {
+						out.Items = append(out.Items, ItemGap{
+							Ref: ref, Date: d.Date, Slot: slot, Index: i,
+							Name: it.Name, Grams: it.Grams, Note: "missing_food",
+						})
+						if len(out.Items) >= itemLimit {
+							return
+						}
+						continue
+					}
 					if !s.itemNeedsNutrition(it, foods) {
 						continue
 					}
@@ -200,6 +223,16 @@ func collectItemGaps(d *Day, foods []Food, s *Store, limit int) []ItemGap {
 				}
 				if len(it.Parts) > 0 {
 					walk(it.Parts, ref)
+					continue
+				}
+				if itemBrokenFoodRef(it, s) {
+					out = append(out, ItemGap{
+						Ref: ref, Date: d.Date, Slot: slot, Index: i,
+						Name: it.Name, Grams: it.Grams, Note: "missing_food",
+					})
+					if len(out) >= limit {
+						return
+					}
 					continue
 				}
 				if !s.itemNeedsNutrition(it, foods) {

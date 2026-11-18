@@ -382,7 +382,7 @@ func (s *Store) ListFoods() []Food {
 func (s *Store) listFoodsUnlocked() []Food {
 	rows, err := s.db.Query(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes,
 		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g,
-		label_grams, label_kcal, label_sodium_mg
+		label_grams, label_kcal, label_sodium_mg, variants_json, edible_fraction
 		FROM foods WHERE user_id = ? ORDER BY name`, s.userID)
 	if err != nil {
 		return nil
@@ -404,9 +404,10 @@ func scanFoods(rows *sql.Rows) []Food {
 
 func scanFoodRow(rows *sql.Rows) (Food, bool) {
 	var f Food
-	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt, labelG, labelKcal, labelSod sql.NullFloat64
+	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt, labelG, labelKcal, labelSod, edibleFrac sql.NullFloat64
+	var variantsJSON string
 	if err := rows.Scan(&f.ID, &f.Name, &kcal, &sod, &f.Notes,
-		&kj, &fat, &sat, &carb, &sugar, &protein, &salt, &labelG, &labelKcal, &labelSod); err != nil {
+		&kj, &fat, &sat, &carb, &sugar, &protein, &salt, &labelG, &labelKcal, &labelSod, &variantsJSON, &edibleFrac); err != nil {
 		return Food{}, false
 	}
 	assignNullFloat(&f.KcalPer100g, kcal)
@@ -421,6 +422,8 @@ func scanFoodRow(rows *sql.Rows) (Food, bool) {
 	assignNullFloat(&f.LabelGrams, labelG)
 	assignNullFloat(&f.LabelKcal, labelKcal)
 	assignNullFloat(&f.LabelSodiumMg, labelSod)
+	assignNullFloat(&f.EdibleFraction, edibleFrac)
+	f.Variants = decodeFoodVariantsJSON(variantsJSON)
 	return f, true
 }
 
@@ -555,6 +558,13 @@ func applyFoodPatch(cur *Food, patch Food) {
 	if patch.Notes != "" {
 		cur.Notes = patch.Notes
 	}
+	if patch.Variants != nil {
+		cur.Variants = patch.Variants
+		SyncFoodFromVariantDefault(cur)
+	}
+	if patch.EdibleFraction != nil {
+		cur.EdibleFraction = patch.EdibleFraction
+	}
 	NormalizeFoodLabel(cur)
 }
 
@@ -613,9 +623,12 @@ func (s *Store) UpdateFood(id string, patch Food) (*Food, error) {
 	return cur, nil
 }
 
-func (s *Store) DeleteFood(id string) error {
+func (s *Store) DeleteFood(id, replaceWith string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.transferFoodAliasRedirectsBeforeDelete(id, replaceWith); err != nil {
+		return err
+	}
 	res, err := s.db.Exec(`DELETE FROM foods WHERE user_id = ? AND id = ?`, s.userID, id)
 	if err != nil {
 		return err
@@ -638,12 +651,13 @@ func (s *Store) FoodCount() int {
 func (s *Store) foodByIDUnlocked(id string) (*Food, bool) {
 	row := s.db.QueryRow(`SELECT id, name, kcal_per_100g, sodium_mg_per_100g, notes,
 		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g,
-		label_grams, label_kcal, label_sodium_mg
+		label_grams, label_kcal, label_sodium_mg, variants_json, edible_fraction
 		FROM foods WHERE user_id = ? AND id = ?`, s.userID, id)
 	var f Food
-	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt, labelG, labelKcal, labelSod sql.NullFloat64
+	var kcal, sod, kj, fat, sat, carb, sugar, protein, salt, labelG, labelKcal, labelSod, edibleFrac sql.NullFloat64
+	var variantsJSON string
 	if err := row.Scan(&f.ID, &f.Name, &kcal, &sod, &f.Notes,
-		&kj, &fat, &sat, &carb, &sugar, &protein, &salt, &labelG, &labelKcal, &labelSod); err != nil {
+		&kj, &fat, &sat, &carb, &sugar, &protein, &salt, &labelG, &labelKcal, &labelSod, &variantsJSON, &edibleFrac); err != nil {
 		return nil, false
 	}
 	assignNullFloat(&f.KcalPer100g, kcal)
@@ -658,6 +672,8 @@ func (s *Store) foodByIDUnlocked(id string) (*Food, bool) {
 	assignNullFloat(&f.LabelGrams, labelG)
 	assignNullFloat(&f.LabelKcal, labelKcal)
 	assignNullFloat(&f.LabelSodiumMg, labelSod)
+	assignNullFloat(&f.EdibleFraction, edibleFrac)
+	f.Variants = decodeFoodVariantsJSON(variantsJSON)
 	return &f, true
 }
 
@@ -692,11 +708,11 @@ func (s *Store) readDayUnlocked(date string) (*Day, bool) {
 }
 
 // scaleMealSlotsLenient fills item kcal/sodium from the food catalog when possible (read-only; errors ignored).
-// Caller must not hold s.mu; uses unlocked DB reads only.
 func (s *Store) scaleMealSlotsLenient(d *Day) {
 	if d == nil || d.Meals == nil {
 		return
 	}
+	foods := s.listFoodsUnlocked()
 	active := make(map[string]bool)
 	var scale func(*MealItem)
 	scale = func(it *MealItem) {
@@ -704,10 +720,10 @@ func (s *Store) scaleMealSlotsLenient(d *Day) {
 			for i := range it.Parts {
 				scale(&it.Parts[i])
 			}
-			_ = s.scaleDishUnlocked(it, active)
+			_ = s.scaleDishUnlocked(it, active, foods)
 			return
 		}
-		_ = s.scaleItemFromFoodUnlocked(it, active)
+		_ = s.scaleItemFromFoodUnlocked(it, active, foods)
 	}
 	for slot, m := range d.Meals {
 		for i := range m.Items {
@@ -1125,15 +1141,18 @@ func dayMatchesQuery(d *Day, q string) bool {
 func (s *Store) ScaleItemFromFood(it *MealItem) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.scaleItemFromFoodUnlocked(it, nil)
+	return s.scaleItemFromFoodUnlocked(it, nil, nil)
 }
 
-func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool) error {
+func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool, foods []Food) error {
 	if len(it.Parts) > 0 {
-		return s.scaleDishUnlocked(it, active)
+		return s.scaleDishUnlocked(it, active, foods)
+	}
+	if foods == nil {
+		foods = s.listFoodsUnlocked()
 	}
 	if it.Grams <= 0 {
-		FillMealItemGramsFromCount(it, s.listFoodsUnlocked())
+		FillMealItemGramsFromCount(it, foods)
 	}
 	if it.Grams <= 0 {
 		return nil
@@ -1142,14 +1161,14 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool) 
 		var f *Food
 		var ok bool
 		if it.FoodID != "" {
-			f, ok = s.foodByIDUnlocked(it.FoodID)
+			f, ok = s.foodByIDOrAliasUnlocked(it.FoodID)
 		} else if byAlias, okAlias := s.bestFoodByAliasUnlocked(it.Name); okAlias {
 			f, ok = byAlias, true
 			if it.FoodID == "" {
 				it.FoodID = f.ID
 			}
 		} else {
-			f, ok = BestFoodMatch(s.listFoodsUnlocked(), it.Name)
+			f, ok = BestFoodMatch(foods, it.Name)
 		}
 		if !ok || f == nil {
 			return false
@@ -1165,7 +1184,7 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool) 
 			it.Kcal = mealItemKcalFromFood(it, f, kcal100)
 		}
 		if sod100 != nil && it.SodiumMg == 0 {
-			it.SodiumMg = *sod100 * it.Grams / 100
+			it.SodiumMg = *sod100 * nutritionGramsForItem(it, f) / 100
 		}
 		return it.Kcal > 0
 	}
@@ -1179,14 +1198,14 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool) 
 	return nil
 }
 
-func (s *Store) scaleDishUnlocked(it *MealItem, active map[string]bool) error {
+func (s *Store) scaleDishUnlocked(it *MealItem, active map[string]bool, foods []Food) error {
 	var batch, k, n float64
 	for i := range it.Parts {
 		p := &it.Parts[i]
 		if strings.TrimSpace(p.Name) == "" {
 			continue
 		}
-		_ = s.scaleItemFromFoodUnlocked(p, active)
+		_ = s.scaleItemFromFoodUnlocked(p, active, foods)
 		batch += p.Grams
 		k += p.Kcal
 		n += p.SodiumMg
@@ -1239,7 +1258,7 @@ func applyCatalogMacrosToItem(it *MealItem, f *Food, kcal100, sod100 *float64) {
 		it.Kcal = mealItemKcalFromFood(it, f, kcal100)
 	}
 	if sod100 != nil && it.SodiumMg == 0 {
-		it.SodiumMg = *sod100 * it.Grams / 100
+		it.SodiumMg = *sod100 * nutritionGramsForItem(it, f) / 100
 	}
 }
 
@@ -1249,7 +1268,7 @@ func applyCatalogMacrosToItemForce(it *MealItem, f *Food, kcal100, sod100 *float
 		it.Kcal = mealItemKcalFromFood(it, f, kcal100)
 	}
 	if sod100 != nil {
-		it.SodiumMg = *sod100 * it.Grams / 100
+		it.SodiumMg = *sod100 * nutritionGramsForItem(it, f) / 100
 	}
 	if strings.TrimSpace(it.FoodID) == "" && strings.TrimSpace(it.StockLotID) == "" {
 		applyMealItemNoteMacros(it)
@@ -1307,28 +1326,32 @@ func insertWeighInUser(exec sqlExec, userID string, w WeighIn) error {
 }
 
 func execFoodUpdate(exec sqlExec, userID string, f Food) error {
+	SyncFoodFromVariantDefault(&f)
 	_, err := exec.Exec(`UPDATE foods SET name=?, kcal_per_100g=?, sodium_mg_per_100g=?, notes=?,
 		energy_kj_per_100g=?, fat_g_per_100g=?, saturates_g_per_100g=?, carbs_g_per_100g=?, sugars_g_per_100g=?, protein_g_per_100g=?, salt_g_per_100g=?,
-		label_grams=?, label_kcal=?, label_sodium_mg=?
+		label_grams=?, label_kcal=?, label_sodium_mg=?, variants_json=?, edible_fraction=?
 		WHERE user_id = ? AND id=?`,
 		f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes,
 		nullFloat(f.EnergyKjPer100g), nullFloat(f.FatGPer100g), nullFloat(f.SaturatesGPer100g),
 		nullFloat(f.CarbsGPer100g), nullFloat(f.SugarsGPer100g), nullFloat(f.ProteinGPer100g), nullFloat(f.SaltGPer100g),
-		nullFloat(f.LabelGrams), nullFloat(f.LabelKcal), nullFloat(f.LabelSodiumMg),
+		nullFloat(f.LabelGrams), nullFloat(f.LabelKcal), nullFloat(f.LabelSodiumMg), encodeFoodVariantsJSON(f.Variants),
+		nullFloat(f.EdibleFraction),
 		userID, f.ID)
 	return err
 }
 
 func insertFoodUser(exec sqlExec, userID string, f Food) error {
 	NormalizeFoodLabel(&f)
+	SyncFoodFromVariantDefault(&f)
 	_, err := exec.Exec(`INSERT INTO foods (user_id, id, name, kcal_per_100g, sodium_mg_per_100g, notes,
 		energy_kj_per_100g, fat_g_per_100g, saturates_g_per_100g, carbs_g_per_100g, sugars_g_per_100g, protein_g_per_100g, salt_g_per_100g,
-		label_grams, label_kcal, label_sodium_mg)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		label_grams, label_kcal, label_sodium_mg, variants_json, edible_fraction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		userID, f.ID, f.Name, nullFloat(f.KcalPer100g), nullFloat(f.SodiumMgPer100g), f.Notes,
 		nullFloat(f.EnergyKjPer100g), nullFloat(f.FatGPer100g), nullFloat(f.SaturatesGPer100g),
 		nullFloat(f.CarbsGPer100g), nullFloat(f.SugarsGPer100g), nullFloat(f.ProteinGPer100g), nullFloat(f.SaltGPer100g),
-		nullFloat(f.LabelGrams), nullFloat(f.LabelKcal), nullFloat(f.LabelSodiumMg))
+		nullFloat(f.LabelGrams), nullFloat(f.LabelKcal), nullFloat(f.LabelSodiumMg), encodeFoodVariantsJSON(f.Variants),
+		nullFloat(f.EdibleFraction))
 	return err
 }
 
