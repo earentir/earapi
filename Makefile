@@ -1,4 +1,4 @@
-.PHONY: all api build linux clean ui health-ui tools/tailwindcss vendor-daisyui
+.PHONY: all api build linux deploy clean ui health-ui tools/tailwindcss vendor-daisyui
 
 BINARY := earapi
 ESBUILD ?= esbuild
@@ -20,6 +20,13 @@ build: api
 
 linux: ui
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BINARY) .
+
+DEPLOY_USER_HOST ?= earentir@earentir.dev
+DEPLOY_DIR ?= /home/earentir
+
+# Build linux binary and rsync only the binary to the server (delta-friendly over SSH).
+deploy: linux
+	rsync -avz -- $(BINARY) $(DEPLOY_USER_HOST):$(DEPLOY_DIR)/
 
 health-ui: tools/tailwindcss
 	@mkdir -p $(UI_OUT)
