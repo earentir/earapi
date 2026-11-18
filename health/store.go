@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -158,18 +159,32 @@ func nullFloat(p *float64) any {
 	return *p
 }
 
+func legacyCopiedFromTotals(d *Day) bool {
+	if d == nil {
+		return true
+	}
+	lk, ln := d.LegacyTotals.Kcal, d.LegacyTotals.SodiumMg
+	if lk <= 0 && ln <= 0 {
+		return true
+	}
+	return math.Round(lk) == math.Round(d.Totals.Kcal) && math.Round(ln) == math.Round(d.Totals.SodiumMg)
+}
+
 func (s *Store) preserveLegacyTotalsLocked(d *Day) {
 	if d == nil || d.Date == "" {
 		return
 	}
 	if d.LegacyTotals.Kcal > 0 || d.LegacyTotals.SodiumMg > 0 {
-		return
+		if !legacyCopiedFromTotals(d) {
+			return
+		}
+		d.LegacyTotals = DayTotals{}
 	}
 	ex, ok := s.readDayUnlocked(d.Date)
 	if !ok {
 		return
 	}
-	if ex.LegacyTotals.Kcal > 0 || ex.LegacyTotals.SodiumMg > 0 {
+	if !legacyCopiedFromTotals(ex) && (ex.LegacyTotals.Kcal > 0 || ex.LegacyTotals.SodiumMg > 0) {
 		d.LegacyTotals = ex.LegacyTotals
 	}
 }
@@ -905,10 +920,8 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 	margin := s.mealMarginPercentUnlocked()
 	if DayHasCatalogLinkedItems(d) {
 		RecomputeDayTotalsWithMargin(d, margin)
-		d.LegacyTotals = d.Totals
-	} else {
-		s.preserveLegacyTotalsLocked(d)
 	}
+	s.preserveLegacyTotalsLocked(d)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
