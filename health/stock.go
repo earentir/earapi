@@ -201,8 +201,11 @@ func (s *Store) UpsertStockLot(lot StockLot) (StockLot, error) {
 	if isNew && lot.RemainingGrams <= 0 {
 		lot.RemainingGrams = lot.BatchGrams
 	}
-	if lot.RemainingGrams > lot.BatchGrams+0.01 {
-		return StockLot{}, fmt.Errorf("%w: remaining cannot exceed batch", ErrInvalidInput)
+	if lot.RemainingGrams > lot.BatchGrams {
+		lot.RemainingGrams = lot.BatchGrams
+	}
+	if lot.RemainingGrams < 0 {
+		lot.RemainingGrams = 0
 	}
 	activeFlag := lot.RemainingGrams > 0.01
 	if lot.Active != nil {
