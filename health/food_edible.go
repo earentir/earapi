@@ -18,6 +18,9 @@ func edibleFractionFromFood(f *Food) float64 {
 	if f == nil {
 		return 1
 	}
+	if foodKind(f) == FoodKindPacked {
+		return 1
+	}
 	if f.Variants != nil && f.Variants.Enabled {
 		cut := f.Variants.DefaultCut
 		if cut == "" {

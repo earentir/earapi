@@ -212,6 +212,11 @@ func migrateHealthDB(db *sql.DB) error {
 			return err
 		}
 	}
+	if !tableHasColumn(db, "foods", "kind") {
+		if _, err := db.Exec(`ALTER TABLE foods ADD COLUMN kind TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
 	var userVersion int
 	_ = db.QueryRow(`PRAGMA user_version`).Scan(&userVersion)
 	const mealItemCountRepairVersion = 1

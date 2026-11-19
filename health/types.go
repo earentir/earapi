@@ -28,6 +28,8 @@ type Food struct {
 	LabelKcal       *float64 `json:"label_kcal,omitempty"`        // kcal for LabelGrams (as printed)
 	LabelSodiumMg   *float64 `json:"label_sodium_mg,omitempty"`   // sodium mg for LabelGrams (as printed / from salt)
 	Notes           string   `json:"notes,omitempty"`
+	// Kind is packed (shop label) or raw (cuts × raw/cooked). Empty on write is inferred.
+	Kind            string        `json:"kind,omitempty"`
 	// EdibleFraction applies when variants are off: weighed grams × fraction for scaling (0–1).
 	EdibleFraction  *float64      `json:"edible_fraction,omitempty"`
 	Variants        *FoodVariants `json:"variants,omitempty"` // optional cut (skinless / with skin) × prep (raw / cooked)
