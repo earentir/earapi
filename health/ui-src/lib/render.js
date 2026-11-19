@@ -1702,11 +1702,17 @@ function catalogFoodPackGrams(food) {
   return g > 0 ? g : null;
 }
 
+function foodFormKindFromFood(f) {
+  const k = String(f?.kind || "").toLowerCase();
+  if (k === "raw" || k === "packed") return k;
+  return "packed";
+}
+
 function foodCatalogPickHint(f) {
   const g = catalogFoodPackGrams(f);
   const k = Number(f?.label_kcal);
   if (g != null && k > 0 && g !== 100) return `${fmt(k, 0)} kcal / ${fmt(g, 0)} g pack`;
-  if (f?.variants?.enabled && f?.kcal_per_100g != null) {
+  if (foodFormKindFromFood(f) === "raw" && f?.variants?.enabled && f?.kcal_per_100g != null) {
     const cut = (f.variants.default_cut || "skinless").replace(/_/g, " ");
     const prep = f.variants.default_prep || "cooked";
     return `${fmt(f.kcal_per_100g, 0)} kcal/100g · ${cut} · ${prep}`;
@@ -1811,7 +1817,7 @@ function refreshFoodFormPer100Preview(overlay) {
   const host = overlay.querySelector("[data-food-form-per100]");
   if (!host) return;
   const val = (k) => overlay.querySelector(`[data-ff="${k}"]`)?.value ?? "";
-  const labelG = numOrUndef(val("label_g"));
+  const labelG = numOrUndef(overlay.querySelector("[data-ff-label-g]")?.value) ?? numOrUndef(val("label_g"));
   if (!labelG || labelG <= 0) {
     host.innerHTML = `<p class="text-sm text-base-content/60 m-0">Enter label total g to see per 100 g.</p>`;
     return;
@@ -1939,6 +1945,7 @@ function foodFormCookedEnabledInitial(v) {
 }
 
 function foodHasVariantProfiles(f) {
+  if (foodFormKindFromFood(f) === "packed") return false;
   return !!f?.variants?.enabled || variantBlockHasData(f?.variants?.skinless?.raw)
     || variantBlockHasData(f?.variants?.skinless?.cooked)
     || variantBlockHasData(f?.variants?.with_skin?.raw)
@@ -2234,11 +2241,37 @@ function refreshFoodFormVariantPreview(overlay) {
     ${foodFormPer100GridHtml(rows)}`;
 }
 
+function foodFormKindValue(overlay) {
+  return overlay.querySelector("[data-ff-kind]")?.value === "raw" ? "raw" : "packed";
+}
+
+function applyFoodFormKindUI(overlay) {
+  const raw = foodFormKindValue(overlay) === "raw";
+  const variants = overlay.querySelector("[data-food-form-variants]");
+  const single = overlay.querySelector("[data-ff-single-label]");
+  const edible = overlay.querySelector("[data-ff-edible-wrap]");
+  if (variants) variants.hidden = !raw;
+  if (single) {
+    single.hidden = raw;
+    single.classList.toggle("hidden", raw);
+  }
+  if (edible) edible.hidden = !raw;
+  if (raw) refreshFoodFormVariantPreview(overlay);
+  else refreshFoodFormPer100Preview(overlay);
+}
+
+function bindFoodFormKind(overlay) {
+  overlay.querySelector("[data-ff-kind]")?.addEventListener("change", () => {
+    const g = overlay.querySelector("[data-ff-label-g]")?.value;
+    const lg = overlay.querySelector('[data-ff="label_g"]');
+    if (lg && g) lg.value = g;
+    applyFoodFormKindUI(overlay);
+  });
+}
+
 function bindFoodFormVariants(overlay) {
   const section = overlay.querySelector("[data-food-form-variants]");
   if (!section) return;
-  const single = overlay.querySelector("[data-ff-single-label]");
-  if (single) single.hidden = true;
   const cookedToggle = overlay.querySelector("[data-ff-v-cooked-enabled]");
   if (cookedToggle) {
     setFoodFormCookedFields(overlay, cookedToggle.checked);
@@ -2281,10 +2314,18 @@ function bindFoodFormVariants(overlay) {
 function bindFoodFormPer100Preview(overlay) {
   bindFoodFormNaField(overlay);
   bindFoodFormVariants(overlay);
+  bindFoodFormKind(overlay);
+  applyFoodFormKindUI(overlay);
   refreshFoodFormVariantPreview(overlay);
   overlay.querySelectorAll("[data-ff]").forEach((inp) => {
     inp.addEventListener("input", () => refreshFoodFormPer100Preview(overlay));
     inp.addEventListener("change", () => refreshFoodFormPer100Preview(overlay));
+  });
+  overlay.querySelector("[data-ff-label-g]")?.addEventListener("input", () => {
+    const g = overlay.querySelector("[data-ff-label-g]")?.value;
+    const lg = overlay.querySelector('[data-ff="label_g"]');
+    if (lg && g) lg.value = g;
+    refreshFoodFormPer100Preview(overlay);
   });
   overlay.querySelector("[data-ff-use-salt]")?.addEventListener("change", () => refreshFoodFormPer100Preview(overlay));
 }
@@ -2302,14 +2343,21 @@ function foodFormFieldsHtml(f) {
   const gramsVal = labelG > 0 ? labelG : 100;
   const v = foodVariantsFromFood(f);
   const edibleTop = foodEdiblePercentDisplay(v.skinless);
+  const kind = foodFormKindFromFood(f);
   return `<div class="${FF_FOOD_FORM}">
-    <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_4.5rem_5.25rem] gap-2 items-end w-full">
+    <div class="grid grid-cols-1 sm:grid-cols-[7.5rem_minmax(0,1fr)_4.5rem_5.25rem] gap-2 items-end w-full">
+    <label class="form-control min-w-0">${ffLab("Type")}
+      <select class="select select-bordered select-sm w-full" data-ff-kind>
+        <option value="packed"${kind === "packed" ? " selected" : ""}>Packed</option>
+        <option value="raw"${kind === "raw" ? " selected" : ""}>Raw</option>
+      </select>
+    </label>
     <label class="form-control min-w-0">${ffLab("Name")}<input class="${FF_INP}" data-ff="name" value="${esc(f?.name || "")}"></label>
     <label class="${FF_FOOD_G}">${ffLab("Grams")}
       <input class="${FF_INP}" data-ff-label-g type="number" min="1" step="1" inputmode="decimal" value="${esc(gramsVal)}"
         title="Serving / pack grams for this catalog row (often 100).">
     </label>
-    <label class="${FF_FOOD_ED}">
+    <label class="${FF_FOOD_ED}" data-ff-edible-wrap>
       <span class="inline-flex items-center gap-0.5 w-full min-h-5">
         ${ffLab("Edible %")}
         ${rowIconBtn("data-ff-yield-calc", "Calc from weighing", "⚖")}
@@ -2319,8 +2367,8 @@ function foodFormFieldsHtml(f) {
     </label>
     </div>
     ${foodFormVariantsSectionHtml(f)}
-    <div class="flex flex-col gap-2 hidden" data-ff-single-label hidden>
-    <label class="form-control min-w-0 sm:max-w-[6rem]">${ffLab("Label total g")}
+    <div class="flex flex-col gap-2" data-ff-single-label>
+    <label class="form-control min-w-0 sm:max-w-[6rem] hidden">${ffLab("Label total g")}
       <input class="${FF_INP}" data-ff="label_g" value="${esc(f?.label_grams > 0 ? f.label_grams : 100)}" inputmode="decimal" placeholder="100"></label>
     <div class="${GRID_4}" title="${esc(euTitle)}">
       <label class="form-control min-w-0 sm:max-w-[4.2rem]">${ffLab("kcal total", euTitle)}<input class="${FF_INP}" data-ff="kcal" value="${esc(dispKcal)}" inputmode="decimal"></label>
@@ -2354,7 +2402,8 @@ function foodFormFieldsHtml(f) {
 }
 
 function readFoodForm(overlay) {
-  if (overlay.querySelector("[data-food-form-variants]")) {
+  const kind = foodFormKindValue(overlay);
+  if (kind === "raw") {
     syncEdiblePercentUi(overlay, { toTop: true });
     const variants = readFoodFormVariants(overlay);
     const def = overlay.querySelector("[data-ff-v-default]")?.value ?? "skinless:cooked";
@@ -2368,6 +2417,7 @@ function readFoodForm(overlay) {
     return {
       name: (overlay.querySelector('[data-ff="name"]')?.value ?? "").trim(),
       notes: (overlay.querySelector('[data-ff="notes"]')?.value ?? "").trim(),
+      kind: "raw",
       variants,
       edible_fraction: cutProf?.edible_fraction,
       label_grams: g,
@@ -2384,7 +2434,8 @@ function readFoodForm(overlay) {
     };
   }
   const val = (k) => overlay.querySelector(`[data-ff="${k}"]`)?.value ?? "";
-  const labelG = numOrUndef(val("label_g"));
+  const packG = numOrUndef(overlay.querySelector("[data-ff-label-g]")?.value);
+  const labelG = packG || numOrUndef(val("label_g"));
   if (!labelG || labelG <= 0) {
     return { error: "Label total g must be greater than 0" };
   }
@@ -2415,6 +2466,7 @@ function readFoodForm(overlay) {
 
   return {
     name: val("name").trim(),
+    kind: "packed",
     label_grams: labelG,
     label_kcal: kcalTotal,
     label_sodium_mg: labelSodium,
