@@ -48,7 +48,7 @@ Values **> 1 and ≤ 100** for `edible_fraction` are treated as **percent**. Inv
 
 Do not invent a second catalog row whose only difference is “(edible)” in the name — set yield on the same food.
 
-Yield for a meal line: `MealItem.edible_fraction` → variant default cut → food `edible_fraction` → **1**.
+Yield for a meal line: `MealItem.edible_fraction` → **1** if `kind` is **`packed`** → variant default cut → food `edible_fraction` → **1**.
 
 ---
 
@@ -56,12 +56,13 @@ Yield for a meal line: `MealItem.edible_fraction` → variant default cut → fo
 
 ### `Food`
 
-Top-level macros mirror the **default variant** after save. Omitted fields are unchanged on `PUT` / `EnsureFood` merge.
+`kind` is **`packed`** (shop pack label) or **`raw`** (skinless / with skin × raw / cooked). Empty stored kind is inferred on read: dual prep, `with_skin` data, or cut-level yield → **raw**; otherwise **packed**. New rows default **packed**. Top-level macros mirror the **default variant** after a **raw** save. Omitted fields are unchanged on `PUT` / `EnsureFood` merge.
 
 ```json
 {
   "id": "yogurt-10pct",
   "name": "10% yogurt",
+  "kind": "packed",
   "kcal_per_100g": 130,
   "sodium_mg_per_100g": 40,
   "protein_g_per_100g": 9.5,
@@ -71,23 +72,15 @@ Top-level macros mirror the **default variant** after save. Omitted fields are u
   "carbs_g_per_100g": null,
   "sugars_g_per_100g": null,
   "salt_g_per_100g": null,
-  "label_grams": 100,
+  "label_grams": 150,
   "notes": "",
-  "edible_fraction": null,
-  "variants": {
-    "enabled": true,
-    "default_cut": "skinless",
-    "default_prep": "cooked",
-    "skinless": {
-      "edible_fraction": 1,
-      "raw": { "kcal_per_100g": 120, "sodium_mg_per_100g": 60 },
-      "cooked": { "kcal_per_100g": 165, "sodium_mg_per_100g": 74 }
-    },
-    "with_skin": { "edible_fraction": 0.85, "cooked": { "kcal_per_100g": 197 } }
-  }
+  "edible_fraction": null
 }
 ```
 
+Raw example keeps `variants` (cut × prep). Packed `PUT` should **omit** `variants` so stored cut/prep JSON is kept when switching back to raw. Packed macros update only the **default** variant slot.
+
+- `kind`: `packed` \| `raw`.
 - `default_cut`: `skinless` \| `with_skin`. `default_prep`: `raw` \| `cooked`.
 - Sending **`variants`** on `PUT` **replaces** the whole object.
 - New rows need **`kcal_per_100g` and/or `sodium_mg_per_100g`** unless updating by `id` or exact `name`.
