@@ -51,6 +51,9 @@ export const state = {
   day: null,
   /** Server-scaled copy for Today UI (POST /nutrition/compute/day). */
   computedDay: null,
+  /** Server-scaled batch editor meal (POST /nutrition/compute/meal, slot stock). */
+  computedStockMeal: null,
+  computedStockDisplay: null,
   days: [],
   daysQ: "",
   tabLoading: false,

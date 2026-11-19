@@ -10,6 +10,8 @@ import {
   itemGapFor,
   scheduleDayNutritionCompute,
   refreshDayNutrition,
+  refreshStockNutrition,
+  clearStockNutrition,
   legacyDayForDiff,
   mealSlotRaw,
 } from "./nutrition-client.js";
@@ -473,8 +475,9 @@ function serializeItemFoodID(it) {
 
 function stockLotForItem(it) {
   if (!it) return null;
-  const lots = state.stock || [];
-  if (it.stock_lot_id) {
+  const editingId = state.stockForm?.id;
+  const lots = (state.stock || []).filter((l) => !editingId || l.id !== editingId);
+  if (it.stock_lot_id && it.stock_lot_id !== editingId) {
     const byID = lots.find((l) => l.id === it.stock_lot_id);
     if (byID) return byID;
   }
@@ -569,7 +572,7 @@ function foodPickList(slot, i, partIdx, it, options) {
 
 function refreshStockModalIfOpen() {
   const overlay = document.querySelector("[data-stock-batch-modal]");
-  if (overlay) refreshStockModalBody(overlay);
+  if (overlay) scheduleStockModalFieldRefresh(overlay);
 }
 
 async function resolveFoodPick(foodID, slot, idx, part, { cut, prep } = {}) {
@@ -683,12 +686,11 @@ function restoreFieldFocus(cap, root = document) {
 /** Full rerender without kicking the user out of meal/draft inputs. */
 export function renderPreservingFocus() {
   const overlay = document.querySelector("[data-stock-batch-modal]");
-  const cap = captureFieldFocus(overlay || undefined);
   if (overlay) {
     refreshStockModalIfOpen();
-    restoreFieldFocus(cap, overlay);
     return;
   }
+  const cap = captureFieldFocus();
   render();
   restoreFieldFocus(cap);
 }
@@ -702,10 +704,15 @@ function scheduleMealFieldRender() {
 let stockModalInputTimer = null;
 function scheduleStockModalFieldRefresh(overlay) {
   clearTimeout(stockModalInputTimer);
+  const capNow = captureFieldFocus(overlay);
+  refreshStockModalBody(overlay);
+  restoreFieldFocus(capNow, overlay);
   stockModalInputTimer = setTimeout(() => {
-    const cap = captureFieldFocus(overlay);
-    refreshStockModalBody(overlay);
-    restoreFieldFocus(cap, overlay);
+    refreshStockNutritionThen(overlay, () => {
+      const cap = captureFieldFocus(overlay);
+      refreshStockModalBody(overlay);
+      restoreFieldFocus(cap, overlay);
+    });
   }, 80);
 }
 
@@ -758,16 +765,54 @@ function suggestList(slot, i, partIdx, q, { isSetHeader = false } = {}) {
   return `<ul class="${MEAL_SUGGEST_LIST}" role="listbox">${hits.flatMap(({ f, label }) => expandFoodPickButtons(f, label, slot, i, partAttr)).join("")}</ul>`;
 }
 
+function draftStockLine(idx, partIdx) {
+  const set = state.mealDraft?.stock?.items?.[idx];
+  if (!set) return null;
+  return partIdx == null ? set : set.parts?.[partIdx] || null;
+}
+
+function stockLinePreviewTotals(idx, partIdx) {
+  if (partIdx != null) {
+    return partNutrientPreview(draftStockLine(idx, partIdx));
+  }
+  const set = draftStockLine(idx, null);
+  let kcal = 0;
+  let na = 0;
+  let any = false;
+  for (const p of set?.parts || []) {
+    const t = partNutrientPreview(p);
+    if (t.kcal != null) {
+      kcal += t.kcal;
+      any = true;
+    }
+    if (t.na != null) {
+      na += t.na;
+      any = true;
+    }
+  }
+  return any ? { kcal, na } : { kcal: null, na: null };
+}
+
 function itemKcalCell(slot, idx, partIdx) {
   const it = computedMealItem(slot, idx, partIdx);
   const k = Number(it?.kcal);
-  return Number.isFinite(k) && k > 0 ? fmt(k, 0) : EMPTY_CELL;
+  if (Number.isFinite(k) && k > 0) return fmt(k, 0);
+  if (slot === "stock") {
+    const prev = stockLinePreviewTotals(idx, partIdx);
+    if (prev.kcal != null && prev.kcal > 0) return fmt(prev.kcal, 0);
+  }
+  return EMPTY_CELL;
 }
 
 function itemNaCell(slot, idx, partIdx) {
   const it = computedMealItem(slot, idx, partIdx);
   const n = Number(it?.sodium_mg);
-  return Number.isFinite(n) && n > 0 ? fmt(n, 0) : EMPTY_CELL;
+  if (Number.isFinite(n) && n > 0) return fmt(n, 0);
+  if (slot === "stock") {
+    const prev = stockLinePreviewTotals(idx, partIdx);
+    if (prev.na != null && prev.na > 0) return fmt(prev.na, 0);
+  }
+  return EMPTY_CELL;
 }
 
 function foodHasPer100Nutrition(f) {
@@ -1000,7 +1045,7 @@ function isStockMealLine(it) {
 }
 
 function itemBlock(slot, i, it) {
-  const dish = itemHasParts(it) && !isStockMealLine(it);
+  const dish = itemHasParts(it) && (slot === "stock" || !isStockMealLine(it));
   const parts = dish
     ? (it.parts || []).map((p, j) => nameGramsRow(slot, i, p, j)).join("")
     : "";
@@ -1179,7 +1224,35 @@ function serializeStockParts(set) {
     .filter(Boolean);
 }
 
+function stockComputeMealBody() {
+  ensureStockMealDraft();
+  const set = state.mealDraft.stock.items[0];
+  const parts = (set.parts || [])
+    .map((p) => serializeItem({ ...p, parts: undefined, is_set: false }))
+    .filter(Boolean);
+  const grams = stockDerivedBatchGrams(set, state.stockForm);
+  return {
+    items: [{
+      name: (set?.name || "").trim() || "Batch",
+      grams: grams > 0 ? grams : 0,
+      parts,
+    }],
+  };
+}
+
+function refreshStockNutritionThen(overlay, after) {
+  refreshStockNutrition(stockComputeMealBody())
+    .then(() => {
+      if (overlay && !overlay.isConnected) return;
+      after?.();
+    })
+    .catch(() => {
+      after?.();
+    });
+}
+
 function partNutrientPreview(p) {
+  if (!p) return { kcal: null, na: null };
   const g = Number(p.grams) || 0;
   const f = foodForItem(p);
   if (!f || g <= 0) return { kcal: null, na: null };
@@ -1295,7 +1368,13 @@ function refreshStockModalBody(overlay) {
 function bindStockModal(overlay) {
   overlay.dataset.stockBatchModal = "1";
   bindIsoInputs(overlay);
-  const refresh = () => refreshStockModalBody(overlay);
+  const refresh = () => {
+    refreshStockNutritionThen(overlay, () => {
+      const cap = captureFieldFocus(overlay);
+      refreshStockModalBody(overlay);
+      restoreFieldFocus(cap, overlay);
+    });
+  };
   overlay.querySelectorAll("[data-field]").forEach((inp) => {
     inp.addEventListener("input", () => {
       const target = draftTarget(inp.dataset.slot, inp.dataset.idx, inp.dataset.part);
@@ -1422,6 +1501,7 @@ function bindStockModal(overlay) {
 function closeStockModalCleanup() {
   state.stockForm = emptyStockForm();
   delete state.mealDraft?.stock;
+  clearStockNutrition();
 }
 
 async function openStockBatchModal() {
@@ -1442,7 +1522,10 @@ async function openStockBatchModal() {
     onDelete: editing
       ? () => deleteStock(state.stockForm?.id)
       : undefined,
-    onMount: bindStockModal,
+    onMount: (overlay) => {
+      bindStockModal(overlay);
+      scheduleStockModalFieldRefresh(overlay);
+    },
     onSubmit: async () => {
       try {
         syncStockFormFromDOM();
@@ -1468,8 +1551,16 @@ function beginEditStockBatch(lotId) {
   if (!lot) return;
   const set = emptyStockSet();
   set.name = lot.name || "";
-  set.parts = (lot.items || []).length ? lot.items.map(cloneDraftItem) : [emptyItem()];
-  pruneBlankSetParts(set);
+  set.is_set = true;
+  set.stock_lot_id = "";
+  set.parts = (lot.items || []).map((raw) => {
+    const p = cloneDraftItem(raw);
+    p.parts = undefined;
+    p.is_set = false;
+    if (p.stock_lot_id === lot.id) p.stock_lot_id = "";
+    return p;
+  });
+  if (!set.parts.length) set.parts = [emptyItem()];
   state.stockForm = {
     id: lot.id,
     prepared_date: lot.prepared_date || "",
@@ -1507,11 +1598,12 @@ function stockView() {
       ${stockUsageRows(lot)}
       ${lot.notes ? `<p class="text-xs text-base-content/60 max-h-20 overflow-auto mt-2 m-0">${esc(lot.notes)}</p>` : ""}
       ${!active && hasLeft ? `<p class="text-xs text-base-content/60 mt-1 m-0">Imported from an old “still in stock” note. Toggle <strong>On</strong> only if it is still in the fridge.</p>` : ""}
-      ${hasLeft ? `<div class="flex flex-wrap gap-2 mt-2" data-stock-actions>
-        ${active ? `<button type="button" class="btn btn-primary btn-sm" data-draw-stock="${esc(lot.id)}">Log my meal</button>` : ""}
-        <button type="button" class="btn btn-outline btn-sm" data-stock-use="${esc(lot.id)}">Use (no log)</button>
-        <button type="button" class="btn btn-outline btn-sm" data-stock-discard="${esc(lot.id)}">Discard</button>
-      </div>` : ""}
+      <div class="flex flex-wrap gap-2 mt-2" data-stock-actions>
+        <button type="button" class="btn btn-outline btn-sm" data-edit-stock="${esc(lot.id)}">Edit</button>
+        ${hasLeft && active ? `<button type="button" class="btn btn-primary btn-sm" data-draw-stock="${esc(lot.id)}">Log my meal</button>` : ""}
+        ${hasLeft ? `<button type="button" class="btn btn-outline btn-sm" data-stock-use="${esc(lot.id)}">Use (no log)</button>
+        <button type="button" class="btn btn-outline btn-sm" data-stock-discard="${esc(lot.id)}">Discard</button>` : ""}
+      </div>
       </div>
     </article>`;
   };
@@ -3126,6 +3218,12 @@ function bind() {
     }
   });
   document.getElementById("stock-add")?.addEventListener("click", () => beginNewStockBatch());
+  document.querySelectorAll("[data-edit-stock]").forEach((b) => {
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      beginEditStockBatch(b.dataset.editStock);
+    });
+  });
   document.querySelectorAll("[data-draw-stock]").forEach((b) => {
     b.addEventListener("click", () => {
       drawStock(b.dataset.drawStock).catch((e) => toast(e.message));
@@ -3246,8 +3344,9 @@ function serializeItem(it, { inSet = false } = {}) {
   row.grams = gExplicit != null && gExplicit > 0 ? gExplicit : 0;
   if (linkedFood) row.food_id = linkedFood;
   const lot = stockLotForItem(it);
-  if (lot?.id) row.stock_lot_id = lot.id;
-  else if (it.stock_lot_id) row.stock_lot_id = it.stock_lot_id;
+  const editingId = state.stockForm?.id;
+  if (lot?.id && lot.id !== editingId) row.stock_lot_id = lot.id;
+  else if (it.stock_lot_id && it.stock_lot_id !== editingId) row.stock_lot_id = it.stock_lot_id;
   if (row.stock_lot_id) {
     delete row.parts;
   }
@@ -3666,8 +3765,12 @@ async function saveStock() {
     toast("Set name and at least one ingredient with grams required");
     return false;
   }
+  const cur = f.id ? (state.stock || []).find((l) => l.id === f.id) : null;
+  const oldBatch = Number(cur?.batch_grams) || 0;
+  const oldLeft = numOrUndef(f.remaining_grams) ?? (Number(cur?.remaining_grams) || 0);
+  const used = f.id ? Math.max(0, oldBatch - oldLeft) : 0;
   f.batch_grams = batch;
-  const left = f.id ? (numOrUndef(f.remaining_grams) ?? batch) : batch;
+  const left = f.id ? Math.max(0, batch - used) : batch;
   const items = serializeStockParts(set);
   const body = {
     name: setName,

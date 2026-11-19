@@ -28,8 +28,12 @@ export function mealBandClass(band) {
 }
 
 export function computedMealItem(slot, idx, partIdx) {
-  const day = nutritionDay();
-  let it = day?.meals?.[slot]?.items?.[idx];
+  let it;
+  if (slot === "stock") {
+    it = state.computedStockMeal?.items?.[idx];
+  } else {
+    it = nutritionDay()?.meals?.[slot]?.items?.[idx];
+  }
   if (!it) return null;
   if (partIdx != null) it = it.parts?.[partIdx];
   return it || null;
@@ -71,7 +75,9 @@ export function itemGapRef(slot, idx, partIdx) {
 }
 
 export function itemGapFor(slot, idx, partIdx) {
-  const gaps = dayDisplay().item_gaps || [];
+  const gaps = slot === "stock"
+    ? (state.computedStockDisplay?.item_gaps || [])
+    : (dayDisplay().item_gaps || []);
   const ref = itemGapRef(slot, idx, partIdx);
   return gaps.find((g) => g.ref === ref) || null;
 }
@@ -113,4 +119,32 @@ export async function refreshDayNutrition(draftItems, mealDraft) {
     }
   }
   return state.computedDay;
+}
+
+let stockComputeSeq = 0;
+
+/** Scale a stock batch recipe in the editor (does not persist). */
+export async function refreshStockNutrition(meal) {
+  const seq = ++stockComputeSeq;
+  if (!meal?.items?.length) {
+    if (seq === stockComputeSeq) {
+      state.computedStockMeal = null;
+      state.computedStockDisplay = null;
+    }
+    return null;
+  }
+  const out = await api("/nutrition/compute/meal", {
+    method: "POST",
+    body: JSON.stringify({ date: state.date, slot: "stock", meal }),
+  });
+  if (seq !== stockComputeSeq) return null;
+  state.computedStockMeal = out.meal || null;
+  state.computedStockDisplay = out.display || null;
+  return out;
+}
+
+export function clearStockNutrition() {
+  stockComputeSeq += 1;
+  state.computedStockMeal = null;
+  state.computedStockDisplay = null;
 }
