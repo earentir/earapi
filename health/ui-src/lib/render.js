@@ -33,12 +33,13 @@ import {
   pruneBlankSetParts,
   setPartStats,
   recomputeSetGrams,
+  syncAllSetGramsInDraft,
   absorbIntoSet,
   ejectPartFromSet,
   cloneDraftItem,
 } from "./meal-items.js";
 import {
-  bestFoodMatch, bestFoodByAlias, foodByAlias, foodMatchCandidates,
+  foodByAlias, foodMatchCandidates,
   mealLineFoodSuggestions, foodPickCandidates, cleanFoodDisplayName,
   catalogMatchesMealLine, foodMatchQuery,
 } from "./fuzzy.js";
@@ -440,23 +441,33 @@ function mealItemsLookLikeBlob(items) {
   return name.includes(" + ") || name.includes("→") || name.length > 72;
 }
 
+function mealLineMatchesFood(it, food) {
+  if (!food || !(it?.name || "").trim()) return false;
+  const name = (it.name || "").trim();
+  const byAlias = foodByAlias(state.foodAliases, state.foods, name);
+  if (byAlias && byAlias.id === food.id) return true;
+  if (catalogMatchesMealLine(food.name, name)) return true;
+  return cleanFoodDisplayName(food.name).toLowerCase() === name.toLowerCase();
+}
+
 function foodForItem(it) {
   if (it?.food_id) {
     const byID = state.foods.find((f) => f.id === it.food_id);
-    if (byID) return byID;
+    if (byID && mealLineMatchesFood(it, byID)) return byID;
     const byIdAlias = foodByAlias(state.foodAliases, state.foods, it.food_id);
-    if (byIdAlias) return byIdAlias;
+    if (byIdAlias && mealLineMatchesFood(it, byIdAlias)) return byIdAlias;
   }
-  const byAlias = bestFoodByAlias(state.foodAliases, state.foods, it?.name);
+  const name = (it?.name || "").trim();
+  if (!name) return null;
+  const byAlias = foodByAlias(state.foodAliases, state.foods, name);
   if (byAlias) return byAlias;
-  const fuzzy = bestFoodMatch(state.foods, it?.name);
-  if (fuzzy) return fuzzy;
-  const q = (it?.name || "").trim().toLowerCase();
-  if (!q) return null;
+  const strict = foodMatchCandidates(state.foods, name);
+  if (strict.length === 1) return strict[0];
+  const q = name.toLowerCase();
   const base = q.replace(/\s*\(.*$/, "").trim();
   return (
-    state.foods.find((f) => f.name.toLowerCase() === q)
-    || state.foods.find((f) => f.name.toLowerCase() === base)
+    state.foods.find((f) => cleanFoodDisplayName(f.name).toLowerCase() === q)
+    || state.foods.find((f) => cleanFoodDisplayName(f.name).toLowerCase() === base)
     || null
   );
 }
@@ -467,48 +478,50 @@ function knownFood(name) {
 
 function serializeItemFoodID(it) {
   const id = (it?.food_id || "").trim();
-  if (id && (state.foods.some((f) => f.id === id) || foodByAlias(state.foodAliases, state.foods, id))) {
-    return id;
-  }
-  const linked = foodForItem(it);
-  return linked?.id || id || undefined;
+  if (!id) return undefined;
+  const f = state.foods.find((x) => x.id === id);
+  if (f && mealLineMatchesFood(it, f)) return id;
+  const byAlias = foodByAlias(state.foodAliases, state.foods, id);
+  if (byAlias && mealLineMatchesFood(it, byAlias)) return id;
+  return undefined;
 }
 
 function stockLotForItem(it) {
-  if (!it) return null;
+  if (!it?.stock_lot_id) return null;
   const editingId = state.stockForm?.id;
-  const lots = (state.stock || []).filter((l) => !editingId || l.id !== editingId);
-  if (it.stock_lot_id && it.stock_lot_id !== editingId) {
-    const byID = lots.find((l) => l.id === it.stock_lot_id);
-    if (byID) return byID;
-  }
-  return matchStockLotByName(it.name, lots);
+  if (it.stock_lot_id === editingId) return null;
+  return state.stock.find((l) => l.id === it.stock_lot_id) || null;
 }
 
 function linkDraftItemFood(it) {
   if (!it || itemHasParts(it)) return;
-  if (it.food_id && state.foods.some((f) => f.id === it.food_id)) return;
-  const aliasFood = bestFoodByAlias(state.foodAliases, state.foods, it.name);
+  if (it.stock_lot_id) return;
+  const name = (it?.name || "").trim();
+  if (!name) {
+    it.food_id = "";
+    return;
+  }
+  if (it.food_id) {
+    const cur = state.foods.find((f) => f.id === it.food_id);
+    if (cur && mealLineMatchesFood(it, cur)) return;
+    it.food_id = "";
+  }
+  const aliasFood = foodByAlias(state.foodAliases, state.foods, name);
   if (aliasFood) {
     it.food_id = aliasFood.id;
     return;
   }
-  const strict = foodMatchCandidates(state.foods, it.name);
-  if (strict.length >= 2) return;
-  if (strict.length === 1) {
-    it.food_id = strict[0].id;
-    return;
-  }
-  if (foodPickCandidates(state.foods, it.name).length >= 2) return;
-  const m = bestFoodMatch(state.foods, it.name);
-  if (m) it.food_id = m.id;
+  const strict = foodMatchCandidates(state.foods, name);
+  if (strict.length === 1) it.food_id = strict[0].id;
 }
 
 function foodItemLinked(it) {
   const fid = (it?.food_id || "").trim();
-  if (fid && state.foods.some((f) => f.id === fid)) return true;
-  if (fid && foodByAlias(state.foodAliases, state.foods, fid)) return true;
-  return !!bestFoodByAlias(state.foodAliases, state.foods, it?.name);
+  if (!fid) return false;
+  const f = state.foods.find((x) => x.id === fid);
+  if (f) return mealLineMatchesFood(it, f);
+  const byAlias = foodByAlias(state.foodAliases, state.foods, fid);
+  return !!(byAlias && mealLineMatchesFood(it, byAlias));
 }
 
 function itemMissingCatalogFood(it) {
@@ -646,8 +659,8 @@ async function resolveFoodPick(foodID, slot, idx, part, { cut, prep } = {}) {
 
 function linkDraftItemStock(it) {
   if (!it || itemHasParts(it)) return;
-  const lot = stockLotForItem(it);
-  if (lot) it.stock_lot_id = lot.id;
+  if (!it.stock_lot_id) return;
+  if (!state.stock.some((l) => l.id === it.stock_lot_id)) it.stock_lot_id = "";
 }
 
 function slotHeaderTotals(slot) {
@@ -3182,12 +3195,8 @@ function bind() {
           p: inp.dataset.part == null ? -1 : Number(inp.dataset.part),
           q: inp.value,
         };
-        linkDraftItemStock(target);
         linkDraftItemFood(target);
         scheduleMealFieldRender();
-      } else if (inp.dataset.field === "count") {
-        linkDraftItemStock(target);
-        linkDraftItemFood(target);
       }
     });
   });
@@ -3513,7 +3522,7 @@ function serializeItem(it, { inSet = false } = {}) {
   const parts = (it.parts || []).map((p) => serializeItem(p, { inSet: true })).filter(Boolean);
   if (!name && !parts.length) return null;
   const linkedFood = serializeItemFoodID(it);
-  const hasStock = !!(it.stock_lot_id || stockLotForItem(it)?.id);
+  const hasStock = !!it.stock_lot_id;
   if (inSet && name && !parts.length && ingredientMissingGrams(it) && !linkedFood && !hasStock) {
     return null;
   }
@@ -3566,6 +3575,7 @@ async function saveDay(opts = {}) {
   }
   saveDayInFlight = true;
   try {
+    syncAllSetGramsInDraft(state.mealDraft);
     const meals = [];
     const deleteMeals = [];
     for (const slot of SLOTS) {
@@ -3883,8 +3893,10 @@ function fillDraftFromDay(day) {
         return c;
       }) : emptySlot().items;
       const walk = (it) => {
-        linkDraftItemStock(it);
-        linkDraftItemFood(it);
+        if (!itemHasParts(it)) {
+          linkDraftItemStock(it);
+          linkDraftItemFood(it);
+        }
         if (itemHasParts(it)) {
           pruneBlankSetParts(it);
           recomputeSetGrams(it);

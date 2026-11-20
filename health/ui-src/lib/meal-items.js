@@ -62,6 +62,20 @@ export function recomputeSetGrams(set, keepPartial) {
   }
 }
 
+/** Meal editor: set header grams = sum of parts before save/compute. */
+export function syncAllSetGramsInDraft(mealDraft) {
+  if (!mealDraft) return;
+  for (const slot of SLOTS) {
+    const walk = (it) => {
+      if (itemHasParts(it)) {
+        recomputeSetGrams(it);
+        (it.parts || []).forEach(walk);
+      }
+    };
+    (mealDraft[slot]?.items || []).forEach(walk);
+  }
+}
+
 export function cloneDraftItem(it) {
   const parts = Array.isArray(it.parts) ? it.parts.map(cloneDraftItem) : undefined;
   const isSet = !!it.is_set || (parts && parts.length > 0 && !it.stock_lot_id);

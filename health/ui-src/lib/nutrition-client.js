@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { state } from "./state.js";
 import { SLOTS } from "./constants.js";
+import { syncAllSetGramsInDraft } from "./meal-items.js";
 const BAND_TEXT = {
   muted: "text-base-content/50",
   green: "text-success",
@@ -83,6 +84,7 @@ export function itemGapFor(slot, idx, partIdx) {
 }
 
 export function buildDayComputeBody(draftItems, mealDraft) {
+  syncAllSetGramsInDraft(mealDraft);
   const meals = {};
   for (const slot of SLOTS) {
     meals[slot] = {
