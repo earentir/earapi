@@ -134,11 +134,14 @@ Raw example keeps `variants` (cut × prep). Packed `PUT` should **omit** `varian
   "kg": 142.5,
   "rhr_bpm": 58,
   "note": "morning",
+  "post_bm": true,
+  "pre_coffee": true,
+  "pre_food": true,
   "protocol": true
 }
 ```
 
-`rhr_bpm` is resting heart rate (beats per minute). `protocol` = protocol weigh-in.
+`rhr_bpm` is resting heart rate (beats per minute). `post_bm` / `pre_coffee` / `pre_food` (no food or liquids yet) are the weigh-in conditions. `protocol` is derived: true only when all three are true (legacy clients may send `protocol` alone; that sets all three).
 
 ### `StockLot`
 
@@ -257,7 +260,7 @@ Body: `{ "date", "slot", "meal", "legacy_totals"? }`. Does not persist.
   "date": "2026-11-11",
   "bp": "128/82",
   "walking": "park 40min",
-  "weight": { "kg": 142.5, "protocol": true, "note": "morning", "rhr_bpm": 58 },
+  "weight": { "kg": 142.5, "post_bm": true, "pre_coffee": true, "pre_food": true, "note": "morning", "rhr_bpm": 58 },
   "ensure_foods": [],
   "meals": [
     { "slot": "lunch", "replace": true, "items": [{ "name": "Pasta", "grams": 120 }] },
@@ -276,7 +279,7 @@ Empty `date` → today (Athens). Server computes kcal/sodium.
 
 - **`GET /weight/latest`** → `{ "weight": WeighIn \| null }`
 - **`GET /weight?from=&to=`** → `{ "weights", "count" }`
-- **`POST /weight`** body `{ date, kg, note, rhr_bpm, protocol }` → **201** `{ "weight" }`
+- **`POST /weight`** body `{ date, kg, note, rhr_bpm, post_bm, pre_coffee, pre_food }` → **201** `{ "weight" }`
 - **`PUT /weight/:id`** body `WeighIn`
 - **`DELETE /weight/:id`** → `{ "deleted": "<id>" }`
 
