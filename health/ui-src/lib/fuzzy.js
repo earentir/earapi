@@ -225,8 +225,13 @@ export function aliasFoodSuggestions(aliases, foods, itemName, limit = 8) {
     }
     const sc = scoreFoodName(alias, foodMatchQuery(itemName));
     if (partial && sc < 30 && !low.includes(partial)) continue;
+    const qt = matchQueryTokens(foodMatchQuery(itemName));
+    if (qt.length > 1 && !qt.every((t) => tokenInFoodName(t, low))) continue;
     const f = foods.find((x) => x.id === row.food_id);
-    if (f) scored.push({ f, alias, sc });
+    if (!f) continue;
+    const exactAlias = low === foodMatchQuery(itemName);
+    if (!exactAlias && !catalogMatchesMealLine(f.name, itemName)) continue;
+    scored.push({ f, alias, sc });
   }
   scored.sort((a, b) => b.sc - a.sc || a.alias.localeCompare(b.alias));
   const out = [];
@@ -258,9 +263,7 @@ export function typeaheadFoodSuggestions(foods, itemName, limit = 8) {
     ranked.push({ f, sc: scoreFoodName(f.name, raw) });
   }
   ranked.sort((a, b) => b.sc - a.sc || a.f.name.localeCompare(b.f.name));
-  let out = ranked.slice(0, limit).map((x) => x.f);
-  if (out.length) return out;
-  return foodPickCandidates(foods, itemName, limit);
+  return ranked.slice(0, limit).map((x) => x.f);
 }
 
 /** Typeahead list for meal name fields (catalog lookup while typing). */
@@ -326,7 +329,7 @@ export function foodPickCandidates(foods, itemName, limit = 12) {
     for (const t of qt) {
       if (tokenInFoodName(t, full)) hit += 1;
     }
-    if (hit > 0) ranked.push({ f, hit, sc: scoreFoodName(f.name, q) });
+    if (hit === qt.length) ranked.push({ f, hit, sc: scoreFoodName(f.name, q) });
   }
   ranked.sort((a, b) => b.hit - a.hit || b.sc - a.sc || a.f.name.localeCompare(b.f.name));
   let out = ranked.slice(0, limit).map((x) => x.f);
