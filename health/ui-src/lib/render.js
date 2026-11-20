@@ -2625,6 +2625,17 @@ function weighInEnergy(w) {
   });
 }
 
+function weighInFlagToggleHtml(w, flag, label) {
+  const on = !!w?.[flag];
+  return `<label class="flex justify-center items-center m-0 py-0 min-h-0 cursor-pointer" data-weight-flag-wrap>
+    ${daisyToggle({
+      checked: on,
+      extraClass: "toggle-sm",
+      extraAttrs: `data-weight-flag="${esc(w.id)}" data-flag="${esc(flag)}" title="${esc(label)}" aria-label="${esc(label)}"`,
+    })}
+  </label>`;
+}
+
 function weightView() {
   const latest = state.overview?.latest_weight;
   const weightsInPeriod = recordsInRange(state.weights, state.weightRange, resolveTodayDate(state));
@@ -2636,7 +2647,9 @@ function weightView() {
     <td>${fmt(w.kg, 1)}</td>
     <td class="font-mono tabular-nums">${est ? fmt(est.bmr, 0) : "-"}</td>
     <td>${w.rhr_bpm ?? ""}</td>
-    <td>${w.protocol ? "yes" : ""}</td>
+    <td>${weighInFlagToggleHtml(w, "post_bm", "Post-BM")}</td>
+    <td>${weighInFlagToggleHtml(w, "pre_coffee", "Pre-coffee")}</td>
+    <td>${weighInFlagToggleHtml(w, "pre_food", "Pre-food / liquids")}</td>
     <td>${esc(w.note || "")}</td>
   </tr>`;
   }).join("");
@@ -2649,8 +2662,8 @@ function weightView() {
     </div>
     <div class="card card-bordered bg-base-100 shadow-sm mt-3 overflow-x-auto">
       <table class="table table-zebra table-sm">
-        <thead><tr><th>Date</th><th>kg</th><th>BMR</th><th>RHR (bpm)</th><th>Protocol</th><th>Note</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="6" class="text-base-content/60">No weigh-ins</td></tr>`}</tbody>
+        <thead><tr><th>Date</th><th>kg</th><th>BMR</th><th>RHR (bpm)</th><th>Post-BM</th><th>Pre-coffee</th><th>Pre-food</th><th>Note</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="8" class="text-base-content/60">No weigh-ins</td></tr>`}</tbody>
       </table>
     </div>
   </div>`);
@@ -3311,8 +3324,41 @@ function bind() {
   });
   document.getElementById("weight-add")?.addEventListener("click", () => openWeightForm().catch((e) => toast(e.message)));
   document.querySelectorAll("[data-open-weight]").forEach((tr) => {
-    tr.addEventListener("click", () => openWeightForm(tr.dataset.openWeight).catch((e) => toast(e.message)));
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("[data-weight-flag-wrap], [data-weight-flag]")) return;
+      openWeightForm(tr.dataset.openWeight).catch((err) => toast(err.message));
+    });
   });
+  document.querySelectorAll("[data-weight-flag]").forEach((inp) => {
+    inp.addEventListener("click", (e) => e.stopPropagation());
+    inp.addEventListener("change", (e) => {
+      e.stopPropagation();
+      patchWeighInFlag(inp.dataset.weightFlag, inp.dataset.flag, inp.checked).catch((err) => toast(err.message));
+    });
+  });
+}
+
+async function patchWeighInFlag(id, flag, on) {
+  const w = state.weights.find((x) => x.id === id);
+  if (!w || !flag) return;
+  const body = {
+    date: w.date,
+    kg: w.kg,
+    note: w.note || "",
+    post_bm: !!w.post_bm,
+    pre_coffee: !!w.pre_coffee,
+    pre_food: !!w.pre_food,
+    rhr_bpm: w.rhr_bpm,
+  };
+  body[flag] = !!on;
+  try {
+    await api(`/weight/${id}`, { method: "PUT", body: JSON.stringify(body) });
+    await loadWeights();
+    render();
+  } catch (e) {
+    toast(e.message);
+    render();
+  }
 }
 
 function numOrUndef(v) {
@@ -3608,7 +3654,14 @@ async function openWeightForm(id) {
         ],
       },
       { key: "note", label: "Note", value: w?.note || "", grow: true },
-      { key: "protocol", label: "Protocol weigh-in", value: w ? !!w.protocol : true, type: "checkbox" },
+      {
+        type: "row",
+        fields: [
+          { key: "post_bm", label: "Post-BM", value: w ? !!w.post_bm : true, type: "checkbox" },
+          { key: "pre_coffee", label: "Pre-coffee", value: w ? !!w.pre_coffee : true, type: "checkbox" },
+          { key: "pre_food", label: "Pre-food / liquids", value: w ? !!w.pre_food : true, type: "checkbox" },
+        ],
+      },
     ],
   });
   if (!vals) return;
@@ -3627,7 +3680,9 @@ async function openWeightForm(id) {
           date,
           kg,
           note: (vals.note || "").trim(),
-          protocol: vals.protocol,
+          post_bm: !!vals.post_bm,
+          pre_coffee: !!vals.pre_coffee,
+          pre_food: !!vals.pre_food,
           rhr_bpm: rhr != null ? Math.round(rhr) : undefined,
         }),
       });
@@ -3639,7 +3694,9 @@ async function openWeightForm(id) {
           weight: {
             kg,
             note: (vals.note || "").trim(),
-            protocol: vals.protocol,
+            post_bm: !!vals.post_bm,
+            pre_coffee: !!vals.pre_coffee,
+            pre_food: !!vals.pre_food,
             rhr_bpm: rhr != null ? Math.round(rhr) : undefined,
           },
         }),

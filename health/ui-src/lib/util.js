@@ -6,8 +6,8 @@ const FM_LABEL = "label-text text-xs uppercase opacity-60";
 
 export { esc };
 
-export function daisyToggle({ checked = false, extraAttrs = "" } = {}) {
-  return `<input type="checkbox" class="toggle"${checked ? " checked" : ""} ${extraAttrs}>`;
+export function daisyToggle({ checked = false, extraAttrs = "", extraClass = "" } = {}) {
+  return `<input type="checkbox" class="toggle ${extraClass}"${checked ? " checked" : ""} ${extraAttrs}>`;
 }
 
 export function fmt(n, d = 0) {
