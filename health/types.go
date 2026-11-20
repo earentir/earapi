@@ -2,13 +2,17 @@ package health
 
 // WeighIn is one scale reading (same calendar day may have several).
 type WeighIn struct {
-	ID       string  `json:"id"`
-	Date     string  `json:"date"` // YYYY-MM-DD
-	Kg       float64 `json:"kg"`
-	RHRBpm   *int    `json:"rhr_bpm,omitempty"`
-	Note     string  `json:"note,omitempty"`
-	Protocol bool    `json:"protocol,omitempty"`
-	KgRaw    string  `json:"kg_raw,omitempty"` // original text when kg was ambiguous
+	ID        string  `json:"id"`
+	Date      string  `json:"date"` // YYYY-MM-DD
+	Kg        float64 `json:"kg"`
+	RHRBpm    *int    `json:"rhr_bpm,omitempty"`
+	Note      string  `json:"note,omitempty"`
+	PostBM    bool    `json:"post_bm"`
+	PreCoffee bool    `json:"pre_coffee"`
+	PreFood   bool    `json:"pre_food"` // no food or liquids yet
+	// Protocol is true when post_bm, pre_coffee, and pre_food are all set (legacy clients).
+	Protocol bool   `json:"protocol,omitempty"`
+	KgRaw    string `json:"kg_raw,omitempty"` // original text when kg was ambiguous
 }
 
 // Food is a catalog reference item with EU-style nutrition declaration per 100 g.

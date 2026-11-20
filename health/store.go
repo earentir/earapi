@@ -229,7 +229,7 @@ func (s *Store) saveDayTx(tx *sql.Tx, d *Day, marginPercent float64) error {
 func (s *Store) ListWeights(from, to string) []WeighIn {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	q := `SELECT id, date, kg, rhr_bpm, note, protocol, kg_raw FROM weigh_ins WHERE user_id = ?`
+	q := `SELECT id, date, kg, rhr_bpm, note, protocol, kg_raw, post_bm, pre_coffee, pre_food FROM weigh_ins WHERE user_id = ?`
 	args := []any{s.userID}
 	if from != "" {
 		q += ` AND date >= ?`
@@ -251,38 +251,55 @@ func (s *Store) ListWeights(from, to string) []WeighIn {
 func scanWeights(rows *sql.Rows) []WeighIn {
 	var out []WeighIn
 	for rows.Next() {
-		var w WeighIn
-		var rhr sql.NullInt64
-		var prot int
-		if err := rows.Scan(&w.ID, &w.Date, &w.Kg, &rhr, &w.Note, &prot, &w.KgRaw); err != nil {
-			continue
+		w, ok := scanWeighIn(rows)
+		if ok {
+			out = append(out, w)
 		}
-		if rhr.Valid {
-			v := int(rhr.Int64)
-			w.RHRBpm = &v
-		}
-		w.Protocol = prot != 0
-		out = append(out, w)
 	}
 	return out
 }
 
-func (s *Store) LatestWeight() (*WeighIn, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	row := s.db.QueryRow(`SELECT id, date, kg, rhr_bpm, note, protocol, kg_raw FROM weigh_ins
-		WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 1`, s.userID)
+func scanWeighIn(row interface{ Scan(dest ...any) error }) (WeighIn, bool) {
 	var w WeighIn
 	var rhr sql.NullInt64
-	var prot int
-	if err := row.Scan(&w.ID, &w.Date, &w.Kg, &rhr, &w.Note, &prot, &w.KgRaw); err != nil {
-		return nil, false
+	var prot, postBM, preCoffee, preFood int
+	if err := row.Scan(&w.ID, &w.Date, &w.Kg, &rhr, &w.Note, &prot, &w.KgRaw, &postBM, &preCoffee, &preFood); err != nil {
+		return WeighIn{}, false
 	}
 	if rhr.Valid {
 		v := int(rhr.Int64)
 		w.RHRBpm = &v
 	}
 	w.Protocol = prot != 0
+	w.PostBM = postBM != 0
+	w.PreCoffee = preCoffee != 0
+	w.PreFood = preFood != 0
+	applyWeighInConditions(&w)
+	return w, true
+}
+
+// applyWeighInConditions maps legacy protocol-only writes onto the three flags, then derives protocol.
+func applyWeighInConditions(w *WeighIn) {
+	if w == nil {
+		return
+	}
+	if w.Protocol && !w.PostBM && !w.PreCoffee && !w.PreFood {
+		w.PostBM = true
+		w.PreCoffee = true
+		w.PreFood = true
+	}
+	w.Protocol = w.PostBM && w.PreCoffee && w.PreFood
+}
+
+func (s *Store) LatestWeight() (*WeighIn, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	row := s.db.QueryRow(`SELECT id, date, kg, rhr_bpm, note, protocol, kg_raw, post_bm, pre_coffee, pre_food FROM weigh_ins
+		WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 1`, s.userID)
+	w, ok := scanWeighIn(row)
+	if !ok {
+		return nil, false
+	}
 	return &w, true
 }
 
@@ -295,6 +312,7 @@ func (s *Store) AddWeight(w WeighIn) (WeighIn, error) {
 	if w.Kg <= 0 {
 		return WeighIn{}, fmt.Errorf("%w: kg required", ErrInvalidInput)
 	}
+	applyWeighInConditions(&w)
 	var n int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM weigh_ins WHERE user_id = ? AND date = ?`, s.userID, w.Date).Scan(&n)
 	w.ID = fmt.Sprintf("w_%s_%d", w.Date, n+1)
@@ -311,19 +329,12 @@ func (s *Store) WeightByID(id string) (*WeighIn, bool) {
 }
 
 func (s *Store) weightByIDUnlocked(id string) (*WeighIn, bool) {
-	row := s.db.QueryRow(`SELECT id, date, kg, rhr_bpm, note, protocol, kg_raw FROM weigh_ins
+	row := s.db.QueryRow(`SELECT id, date, kg, rhr_bpm, note, protocol, kg_raw, post_bm, pre_coffee, pre_food FROM weigh_ins
 		WHERE user_id = ? AND id = ?`, s.userID, id)
-	var w WeighIn
-	var rhr sql.NullInt64
-	var prot int
-	if err := row.Scan(&w.ID, &w.Date, &w.Kg, &rhr, &w.Note, &prot, &w.KgRaw); err != nil {
+	w, ok := scanWeighIn(row)
+	if !ok {
 		return nil, false
 	}
-	if rhr.Valid {
-		v := int(rhr.Int64)
-		w.RHRBpm = &v
-	}
-	w.Protocol = prot != 0
 	return &w, true
 }
 
@@ -342,7 +353,11 @@ func (s *Store) UpdateWeight(id string, patch WeighIn) (*WeighIn, error) {
 	}
 	cur.Note = patch.Note
 	cur.KgRaw = patch.KgRaw
+	cur.PostBM = patch.PostBM
+	cur.PreCoffee = patch.PreCoffee
+	cur.PreFood = patch.PreFood
 	cur.Protocol = patch.Protocol
+	applyWeighInConditions(cur)
 	if patch.RHRBpm != nil {
 		cur.RHRBpm = patch.RHRBpm
 	}
@@ -353,8 +368,9 @@ func (s *Store) UpdateWeight(id string, patch WeighIn) (*WeighIn, error) {
 }
 
 func (s *Store) writeWeightUnlocked(w WeighIn) error {
-	_, err := s.db.Exec(`UPDATE weigh_ins SET date=?, kg=?, rhr_bpm=?, note=?, protocol=?, kg_raw=? WHERE user_id = ? AND id=?`,
-		w.Date, w.Kg, nullInt(w.RHRBpm), w.Note, boolInt(w.Protocol), w.KgRaw, s.userID, w.ID)
+	applyWeighInConditions(&w)
+	_, err := s.db.Exec(`UPDATE weigh_ins SET date=?, kg=?, rhr_bpm=?, note=?, protocol=?, kg_raw=?, post_bm=?, pre_coffee=?, pre_food=? WHERE user_id = ? AND id=?`,
+		w.Date, w.Kg, nullInt(w.RHRBpm), w.Note, boolInt(w.Protocol), w.KgRaw, boolInt(w.PostBM), boolInt(w.PreCoffee), boolInt(w.PreFood), s.userID, w.ID)
 	return err
 }
 
@@ -1330,17 +1346,14 @@ type sqlExec interface {
 }
 
 func insertWeighInUser(exec sqlExec, userID string, w WeighIn) error {
+	applyWeighInConditions(&w)
 	var rhr any
 	if w.RHRBpm != nil {
 		rhr = *w.RHRBpm
 	}
-	prot := 0
-	if w.Protocol {
-		prot = 1
-	}
-	_, err := exec.Exec(`INSERT INTO weigh_ins (user_id, id, date, kg, rhr_bpm, note, protocol, kg_raw)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		userID, w.ID, w.Date, w.Kg, rhr, w.Note, prot, w.KgRaw)
+	_, err := exec.Exec(`INSERT INTO weigh_ins (user_id, id, date, kg, rhr_bpm, note, protocol, kg_raw, post_bm, pre_coffee, pre_food)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, w.ID, w.Date, w.Kg, rhr, w.Note, boolInt(w.Protocol), w.KgRaw, boolInt(w.PostBM), boolInt(w.PreCoffee), boolInt(w.PreFood))
 	return err
 }
 

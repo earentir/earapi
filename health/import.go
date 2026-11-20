@@ -97,7 +97,10 @@ func parseWeightMarkdown(content string, defaultYear int) []WeighIn {
 		protocol := strings.Contains(strings.ToUpper(note), "PROTOCOL")
 		dayCount[iso]++
 		id := fmt.Sprintf("w_%s_%d", iso, dayCount[iso])
-		w := WeighIn{ID: id, Date: iso, Kg: kg, RHRBpm: rhr, Note: note, Protocol: protocol, KgRaw: kgRaw}
+		w := WeighIn{
+			ID: id, Date: iso, Kg: kg, RHRBpm: rhr, Note: note, Protocol: protocol, KgRaw: kgRaw,
+			PostBM: protocol, PreCoffee: protocol, PreFood: protocol,
+		}
 		if kg == 0 && kgRaw != "" {
 			w.Note = strings.TrimSpace(kgRaw + ", " + note)
 		}

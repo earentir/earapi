@@ -217,6 +217,18 @@ func migrateHealthDB(db *sql.DB) error {
 			return err
 		}
 	}
+	for _, col := range []string{"post_bm", "pre_coffee", "pre_food"} {
+		if !tableHasColumn(db, "weigh_ins", col) {
+			if _, err := db.Exec(`ALTER TABLE weigh_ins ADD COLUMN ` + col + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
+		}
+	}
+	if tableHasColumn(db, "weigh_ins", "protocol") {
+		if _, err := db.Exec(`UPDATE weigh_ins SET post_bm=1, pre_coffee=1, pre_food=1 WHERE protocol=1 AND post_bm=0 AND pre_coffee=0 AND pre_food=0`); err != nil {
+			return err
+		}
+	}
 	var userVersion int
 	_ = db.QueryRow(`PRAGMA user_version`).Scan(&userVersion)
 	const mealItemCountRepairVersion = 1

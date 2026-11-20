@@ -144,7 +144,7 @@ func (s *Service) handleHelp(c *gin.Context) {
 				"date": "2026-11-11",
 				"bp":   "128/82",
 				"walking":     "park 40min",
-				"weight":      gin.H{"kg": 142.5, "protocol": true, "note": "morning post-BM"},
+				"weight":      gin.H{"kg": 142.5, "post_bm": true, "pre_coffee": true, "pre_food": true, "note": "morning post-BM"},
 				"meals": []gin.H{
 					{"slot": "lunch", "replace": true, "items": []gin.H{
 						{"name": "Pasta (cooked, no salt)", "grams": 120},
@@ -166,7 +166,7 @@ func (s *Service) handleHelp(c *gin.Context) {
 				"date":          "2026-11-11",
 				"delete_meals":  []string{"snack"},
 				"delete_foods":  []string{"new-bar"},
-				"weight_update": gin.H{"id": "w_2026-11-11_1", "kg": 142.2, "protocol": true},
+				"weight_update": gin.H{"id": "w_2026-11-11_1", "kg": 142.2, "post_bm": true, "pre_coffee": true, "pre_food": true},
 			},
 			"fill_gaps": gin.H{
 				"foods": []gin.H{
@@ -340,11 +340,14 @@ func (s *Service) handleWeightAdd(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Date     string  `json:"date"`
-		Kg       float64 `json:"kg"`
-		Note     string  `json:"note"`
-		RHRBpm   *int    `json:"rhr_bpm"`
-		Protocol bool    `json:"protocol"`
+		Date      string  `json:"date"`
+		Kg        float64 `json:"kg"`
+		Note      string  `json:"note"`
+		RHRBpm    *int    `json:"rhr_bpm"`
+		PostBM    bool    `json:"post_bm"`
+		PreCoffee bool    `json:"pre_coffee"`
+		PreFood   bool    `json:"pre_food"`
+		Protocol  bool    `json:"protocol"`
 	}
 	if err := c.BindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
@@ -352,7 +355,8 @@ func (s *Service) handleWeightAdd(c *gin.Context) {
 	}
 	w := WeighIn{
 		Date: body.Date, Kg: body.Kg, Note: body.Note,
-		RHRBpm: body.RHRBpm, Protocol: body.Protocol,
+		RHRBpm: body.RHRBpm, PostBM: body.PostBM, PreCoffee: body.PreCoffee, PreFood: body.PreFood,
+		Protocol: body.Protocol,
 	}
 	out, err := st.AddWeight(w)
 	if err != nil {
