@@ -425,6 +425,70 @@ func BestFoodMatch(foods []Food, name string) (*Food, bool) {
 	return &f, true
 }
 
+// FoodMatchCandidates returns catalog foods that strictly match the meal line (for manual pick / unique auto-link).
+func FoodMatchCandidates(foods []Food, name string, limit int) []Food {
+	q := foodMatchQuery(name)
+	if q == "" || len(foods) == 0 {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 12
+	}
+	pool := filterFoodsForMealLine(foods, name)
+	if len(pool) == 0 {
+		return nil
+	}
+	type scored struct {
+		f  Food
+		sc int
+	}
+	var ranked []scored
+	for _, f := range pool {
+		sc := scoreNameForMealLine(f.Name, name)
+		if sc >= 80 {
+			ranked = append(ranked, scored{f, sc})
+		}
+	}
+	if len(ranked) == 0 {
+		return nil
+	}
+	for i := 0; i < len(ranked); i++ {
+		for j := i + 1; j < len(ranked); j++ {
+			if ranked[j].sc > ranked[i].sc {
+				ranked[i], ranked[j] = ranked[j], ranked[i]
+			}
+		}
+	}
+	best := ranked[0].sc
+	minSc := 80
+	if best > 15 {
+		if b := best - 15; b > minSc {
+			minSc = b
+		}
+	}
+	var out []Food
+	for _, r := range ranked {
+		if r.sc < minSc {
+			continue
+		}
+		out = append(out, r.f)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// UniqueStrictFoodMatch auto-links only when a single strict catalog match exists.
+func UniqueStrictFoodMatch(foods []Food, name string) (*Food, bool) {
+	cands := FoodMatchCandidates(foods, name, 12)
+	if len(cands) != 1 {
+		return nil, false
+	}
+	f := cands[0]
+	return &f, true
+}
+
 // marata-style: meal line "Marata 1.7%" vs catalog bullet with Greek name + 1.7%.
 func tokenBoost(name, q string) bool {
 	low := strings.ToLower(cleanFoodDisplayName(name))

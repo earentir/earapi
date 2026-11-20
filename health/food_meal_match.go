@@ -23,6 +23,21 @@ func BuildAliasFoodMap(specs []FoodAliasFromMD, foods []Food) map[string]Food {
 	return out
 }
 
+// MealLineMatchesFood is true when the line name matches the catalog row (exact, alias, or noun tokens).
+func MealLineMatchesFood(mealLine string, f *Food) bool {
+	if f == nil {
+		return false
+	}
+	mealLine = strings.TrimSpace(mealLine)
+	if mealLine == "" {
+		return false
+	}
+	if catalogMatchesMealLine(f.Name, mealLine) {
+		return true
+	}
+	return strings.EqualFold(cleanFoodDisplayName(f.Name), mealLine)
+}
+
 func foodForMealLine(name string, catalog []Food, byAlias map[string]Food) (*Food, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" {

@@ -1195,20 +1195,34 @@ func (s *Store) scaleItemFromFoodUnlocked(it *MealItem, active map[string]bool, 
 	scaleFromCatalog := func() bool {
 		var f *Food
 		var ok bool
+		persistID := false
 		if it.FoodID != "" {
 			f, ok = s.foodByIDOrAliasUnlocked(it.FoodID)
-		} else if byAlias, okAlias := s.bestFoodByAliasUnlocked(it.Name); okAlias {
-			f, ok = byAlias, true
-			if it.FoodID == "" {
-				it.FoodID = f.ID
+			if ok && f != nil && strings.TrimSpace(it.Name) != "" && !MealLineMatchesFood(it.Name, f) {
+				if aliasF, aliasOK := s.foodByAliasUnlocked(it.Name); !aliasOK || aliasF == nil || aliasF.ID != f.ID {
+					it.FoodID = ""
+					f, ok = nil, false
+				}
 			}
-		} else {
-			f, ok = BestFoodMatch(foods, it.Name)
+		}
+		if !ok {
+			if byExact, okExact := s.foodByAliasUnlocked(it.Name); okExact {
+				f, ok = byExact, true
+				persistID = true
+			} else if byFuzzy, okFuzzy := s.bestFoodByAliasUnlocked(it.Name); okFuzzy {
+				f, ok = byFuzzy, true
+				persistID = true
+			} else if byStrict, okStrict := UniqueStrictFoodMatch(foods, it.Name); okStrict {
+				f, ok = byStrict, true
+				persistID = true
+			} else {
+				f, ok = BestFoodMatch(foods, it.Name)
+			}
 		}
 		if !ok || f == nil {
 			return false
 		}
-		if it.FoodID == "" {
+		if persistID && it.FoodID == "" {
 			it.FoodID = f.ID
 		}
 		if strings.TrimSpace(it.Name) == "" {
@@ -1278,7 +1292,20 @@ func scaleItemFromFoodWithCatalog(it *MealItem, catalog []Food, byAlias map[stri
 		return nil
 	}
 	if it.FoodID == "" {
-		it.FoodID = f.ID
+		link := false
+		if byAlias != nil {
+			if _, has := byAlias[normalizeFoodAlias(it.Name)]; has {
+				link = true
+			}
+		}
+		if !link {
+			if _, okStrict := UniqueStrictFoodMatch(catalog, it.Name); okStrict {
+				link = true
+			}
+		}
+		if link {
+			it.FoodID = f.ID
+		}
 	}
 	if strings.TrimSpace(it.Name) == "" {
 		it.Name = f.Name
