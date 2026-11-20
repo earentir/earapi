@@ -40,6 +40,7 @@ import {
 import {
   bestFoodMatch, bestFoodByAlias, foodByAlias, foodMatchCandidates,
   mealLineFoodSuggestions, foodPickCandidates, cleanFoodDisplayName,
+  catalogMatchesMealLine, foodMatchQuery,
 } from "./fuzzy.js";
 import { matchStockLotByName } from "./stock-match.js";
 import {
@@ -545,6 +546,7 @@ function foodPickOpen(slot, i, partIdx) {
 }
 
 function foodPickList(slot, i, partIdx, it, options) {
+  if (stockPickOpen(slot, i, partIdx)) return "";
   const open = foodPickOpen(slot, i, partIdx);
   if (!open) return "";
   let opts = options;
@@ -575,6 +577,46 @@ function refreshStockModalIfOpen() {
   if (overlay) scheduleStockModalFieldRefresh(overlay);
 }
 
+function pickStockLotOnLine(lotId, slot, idx, part) {
+  const lot = state.stock.find((l) => l.id === lotId);
+  const target = draftTarget(slot, idx, part);
+  if (!lot || !target) return;
+  applyStockLotToMealItem(target, lot);
+  clearNameSuggest();
+  if (slot === "stock") {
+    refreshStockModalIfOpen();
+    return;
+  }
+  scheduleSaveDay();
+  renderPreservingFocus();
+}
+
+function bindMealStockPickHandlers(root = document.getElementById("app")) {
+  if (!root) return;
+  root.querySelectorAll("[data-stock-pick]").forEach((b) => {
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const parts = b.dataset.stockPick.split(":");
+      const slot = parts[0];
+      const i = Number(parts[1]);
+      const p = parts.length > 2 ? Number(parts[2]) : -1;
+      const open = stockPickOpen(slot, i, p < 0 ? null : p);
+      state.stockPick = open ? null : { slot, i, p };
+      state.foodPick = null;
+      state.suggest = { slot: "", i: -1, p: -1, q: "" };
+      if (slot === "stock") refreshStockModalIfOpen();
+      else renderPreservingFocus();
+    });
+  });
+  root.querySelectorAll("[data-pick-stock-lot]").forEach((b) => {
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const part = b.dataset.part != null ? Number(b.dataset.part) : null;
+      pickStockLotOnLine(b.dataset.pickStockLot, b.dataset.slot, Number(b.dataset.idx), part);
+    });
+  });
+}
+
 async function resolveFoodPick(foodID, slot, idx, part, { cut, prep } = {}) {
   const target = draftTarget(slot, idx, part);
   if (!target) return;
@@ -585,6 +627,7 @@ async function resolveFoodPick(foodID, slot, idx, part, { cut, prep } = {}) {
   }
   const food = state.foods.find((x) => x.id === foodID);
   applyCatalogFoodToMealItem(target, food, alias, { cut, prep });
+  target.stock_lot_id = "";
   try {
     await api(`/foods/${foodID}/aliases`, { method: "POST", body: JSON.stringify({ alias }) });
     await loadFoods();
@@ -640,7 +683,68 @@ function slotCard(slot, draft) {
 
 function clearNameSuggest() {
   state.foodPick = null;
+  state.stockPick = null;
   state.suggest = { slot: "", i: -1, p: -1, q: "" };
+}
+
+function activeStockLots() {
+  return (state.stock || []).filter(
+    (l) => stockLotActive(l) && (Number(l.remaining_grams) || 0) > 0.01,
+  );
+}
+
+function stockPickOpen(slot, i, partIdx) {
+  const p = state.stockPick;
+  if (!p) return false;
+  return p.slot === slot && p.i === i && (p.p ?? -1) === (partIdx == null ? -1 : partIdx);
+}
+
+function mealStockLotSuggestions(query, limit = 12) {
+  const q = (query || "").trim().toLowerCase();
+  const lots = activeStockLots();
+  if (!lots.length) return [];
+  const scored = [];
+  for (const lot of lots) {
+    const name = (lot.name || "").trim();
+    if (!name) continue;
+    const ln = name.toLowerCase();
+    let rank = 999;
+    if (!q) rank = 0;
+    else if (ln === q) rank = 0;
+    else if (ln.startsWith(q)) rank = 1;
+    else if (ln.includes(q)) rank = 2;
+    else if (matchStockLotByName(query, [lot])) rank = 3;
+    else continue;
+    const left = Number(lot.remaining_grams) || 0;
+    const dens = stockDensity(lot);
+    const hint = left > 0 ? `${dens}, ${fmt(left, 0)} g left` : dens;
+    scored.push({ lot, rank, hint });
+  }
+  scored.sort((a, b) => a.rank - b.rank || a.lot.name.localeCompare(b.lot.name));
+  return scored.slice(0, limit);
+}
+
+function stockPickList(slot, i, partIdx, it) {
+  if (!stockPickOpen(slot, i, partIdx)) return "";
+  const opts = mealStockLotSuggestions((it?.name || "").trim(), 20);
+  if (!opts.length) {
+    return `<div class="text-sm text-base-content/60 p-2" data-stock-pick-list role="status">No active fridge batches.</div>`;
+  }
+  const partAttr = partIdx == null ? "" : ` data-part="${partIdx}"`;
+  return `<ul class="${MEAL_SUGGEST_LIST}" data-stock-pick-list role="listbox">${opts.map(({ lot, hint }) =>
+    `<li><button type="button" class="${SUGGEST_BTN}" data-pick-stock-lot="${esc(lot.id)}" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} title="Use fridge batch on this line">
+      ${esc(lot.name)} <span class="text-base-content/60">${esc(hint)}</span>
+    </button></li>`
+  ).join("")}</ul>`;
+}
+
+function applyStockLotToMealItem(target, lot) {
+  if (!target || !lot) return;
+  target.name = lot.name;
+  target.stock_lot_id = lot.id;
+  target.food_id = "";
+  target.kcal_per_100g = "";
+  target.sodium_mg_per_100g = "";
 }
 
 function captureFieldFocus(root) {
@@ -726,9 +830,9 @@ function ensureNameSuggestDismiss() {
   if (nameSuggestDismissBound) return;
   nameSuggestDismissBound = true;
   document.addEventListener("mousedown", (e) => {
-    if (e.target.closest?.("[data-meal-suggest]") || e.target.closest?.("[data-food-pick-list]")) return;
+    if (e.target.closest?.("[data-meal-suggest]") || e.target.closest?.("[data-food-pick-list]") || e.target.closest?.("[data-stock-pick-list]")) return;
     const hasSuggest = Boolean(state.suggest?.slot);
-    if (!state.foodPick && !hasSuggest) return;
+    if (!state.foodPick && !state.stockPick && !hasSuggest) return;
     clearNameSuggest();
     refreshAfterNameSuggestDismiss();
   });
@@ -737,7 +841,7 @@ function ensureNameSuggestDismiss() {
     (e) => {
       if (e.key !== "Escape") return;
       const hasSuggest = Boolean(state.suggest?.slot);
-      if (!state.foodPick && !hasSuggest) return;
+      if (!state.foodPick && !state.stockPick && !hasSuggest) return;
       e.preventDefault();
       e.stopPropagation();
       clearNameSuggest();
@@ -748,6 +852,7 @@ function ensureNameSuggestDismiss() {
 }
 
 function suggestList(slot, i, partIdx, q, { isSetHeader = false } = {}) {
+  if (stockPickOpen(slot, i, partIdx)) return "";
   const open = state.suggest.slot === slot && state.suggest.i === i
     && (state.suggest.p ?? -1) === (partIdx == null ? -1 : partIdx);
   const query = (q || "").trim();
@@ -759,10 +864,20 @@ function suggestList(slot, i, partIdx, q, { isSetHeader = false } = {}) {
       `<li><button type="button" class="${SUGGEST_BTN}" data-pick-set-name="${esc(name)}" data-slot="${esc(slot)}" data-idx="${i}">${esc(name)}</button></li>`
     ).join("")}</ul>`;
   }
-  const hits = mealLineFoodSuggestions(state.foods, state.foodAliases, query, 10);
-  if (!hits.length) return "";
+  const stockHits = mealStockLotSuggestions(query, 6);
+  const qNorm = foodMatchQuery(query);
+  const foodHits = mealLineFoodSuggestions(state.foods, state.foodAliases, query, 10)
+    .filter((row) => catalogMatchesMealLine(row.f.name, query)
+      || cleanFoodDisplayName(row.label).toLowerCase() === qNorm);
+  if (!stockHits.length && !foodHits.length) return "";
   const partAttr = partIdx == null ? "" : ` data-part="${partIdx}"`;
-  return `<ul class="${MEAL_SUGGEST_LIST}" role="listbox">${hits.flatMap(({ f, label }) => expandFoodPickButtons(f, label, slot, i, partAttr)).join("")}</ul>`;
+  const stockRows = stockHits.map(({ lot, hint }) =>
+    `<li><button type="button" class="${SUGGEST_BTN}" data-pick-stock-lot="${esc(lot.id)}" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} title="Fridge batch">
+      <span class="badge badge-xs badge-outline shrink-0">stock</span> ${esc(lot.name)} <span class="text-base-content/60">${esc(hint)}</span>
+    </button></li>`
+  ).join("");
+  const foodRows = foodHits.flatMap(({ f, label }) => expandFoodPickButtons(f, label, slot, i, partAttr)).join("");
+  return `<ul class="${MEAL_SUGGEST_LIST}" role="listbox">${stockRows}${foodRows}</ul>`;
 }
 
 function draftStockLine(idx, partIdx) {
@@ -981,12 +1096,18 @@ function nameGramsRow(slot, i, it, partIdx) {
     ? `<button type="button" class="btn btn-outline btn-xs shrink-0  " data-food-pick="${esc(slot)}:${i}${partIdx == null ? "" : `:${partIdx}`}" title="${esc(pickOpts.length ? `${pickOpts.length} catalog match${pickOpts.length === 1 ? "" : "es"}: pick one` : "Pick food from catalog")}" aria-label="Pick food from catalog">pick</button>`
     : "";
   const stockLot = stockLotForItem(it);
+  const canStockPick = !isSetHeader && activeStockLots().length > 0 && !stockLot;
+  const stockPickOn = stockPickOpen(slot, i, partIdx);
+  const stockPickBtn = canStockPick
+    ? `<button type="button" class="btn btn-outline btn-xs shrink-0${stockPickOn ? " btn-primary" : ""}" data-stock-pick="${esc(slot)}:${i}${partIdx == null ? "" : `:${partIdx}`}" title="Choose from fridge stock (batches only)" aria-label="Choose from fridge stock" aria-pressed="${stockPickOn ? "true" : "false"}">fridge</button>`
+    : "";
   const stockHint = stockLot && !needPer100g
-    ? `<span class="btn btn-outline btn-xs shrink-0  " title="${esc(stockLot.name)}">stock</span>`
+    ? `<span class="btn btn-outline btn-xs shrink-0 pointer-events-none" title="${esc(stockLot.name)} — linked from fridge">stock</span>`
     : "";
   const nameTitle = needPer100g ? "Not in Foods or Stock: set per 100 g in the kcal and Na columns" : "";
   const nameInput = `<div class="relative min-w-0 flex-1 w-full" data-meal-suggest>
-        <span class="flex items-center gap-1.5 min-w-0 w-full">${stockHint}${pickBtn}<input class="${MEAL_INP} ${MEAL_INP_H} min-w-0 flex-1 w-full" data-field="name" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.name)}" placeholder="${namePh}" autocomplete="off"${nameTitle ? ` title="${esc(nameTitle)}"` : ""}>${addToSet}</span>
+        <span class="flex items-center gap-1.5 min-w-0 w-full">${stockHint}${stockPickBtn}${pickBtn}<input class="${MEAL_INP} ${MEAL_INP_H} min-w-0 flex-1 w-full" data-field="name" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.name)}" placeholder="${namePh}" autocomplete="off"${nameTitle ? ` title="${esc(nameTitle)}"` : ""}>${addToSet}</span>
+        ${stockPickList(slot, i, partIdx, it)}
         ${foodPickList(slot, i, partIdx, it, pickOpts)}
         ${suggestList(slot, i, partIdx, it.name, { isSetHeader })}
       </div>`;
@@ -1254,8 +1375,17 @@ function refreshStockNutritionThen(overlay, after) {
 function partNutrientPreview(p) {
   if (!p) return { kcal: null, na: null };
   const g = Number(p.grams) || 0;
+  if (g <= 0) return { kcal: null, na: null };
+  const lot = p.stock_lot_id
+    ? state.stock?.find((l) => l.id === p.stock_lot_id)
+    : stockLotForItem(p);
+  if (lot?.kcal_per_100g != null) {
+    const kcal = (lot.kcal_per_100g * g) / 100;
+    const na = lot.sodium_mg_per_100g != null ? (lot.sodium_mg_per_100g * g) / 100 : null;
+    return { kcal, na };
+  }
   const f = foodForItem(p);
-  if (!f || g <= 0) return { kcal: null, na: null };
+  if (!f) return { kcal: null, na: null };
   const kcal = f.kcal_per_100g != null ? (f.kcal_per_100g * g) / 100 : null;
   const na = f.sodium_mg_per_100g != null ? (f.sodium_mg_per_100g * g) / 100 : null;
   return { kcal, na };
@@ -1496,6 +1626,7 @@ function bindStockModal(overlay) {
       refresh();
     });
   });
+  bindMealStockPickHandlers(overlay);
 }
 
 function closeStockModalCleanup() {
@@ -1817,6 +1948,7 @@ function applyCatalogFoodToMealItem(target, food, labelName, { cut, prep } = {})
   if (!target || !food) return;
   target.name = (labelName || "").trim() || food.name;
   target.food_id = food.id;
+  target.stock_lot_id = "";
   target.kcal_per_100g = "";
   target.sodium_mg_per_100g = "";
   const block = foodVariantNutritionBlock(food, cut, prep);
@@ -3068,10 +3200,12 @@ function bind() {
       const p = parts.length > 2 ? Number(parts[2]) : -1;
       const open = foodPickOpen(slot, i, p < 0 ? null : p);
       state.foodPick = open ? null : { slot, i, p };
+      state.stockPick = null;
       state.suggest = { slot: "", i: -1, p: -1, q: "" };
       render();
     });
   });
+  bindMealStockPickHandlers(app);
   app?.querySelectorAll("[data-resolve-food]").forEach((b) => {
     b.addEventListener("click", () => {
       const [foodID, slot, idx, part] = b.dataset.resolveFood.split(":");
