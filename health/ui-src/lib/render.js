@@ -3310,8 +3310,10 @@ function bind() {
       } else if (v.startsWith("slot:")) {
         moveDraftItemToSlot(slot, Number(i), v.slice(5));
       }
-      scheduleSaveDay();
-      render();
+      sel.value = "";
+      flushSaveDay()
+        .then(() => render())
+        .catch((e) => toast(e.message));
     });
   });
   app?.querySelectorAll("[data-del]").forEach((b) => {
@@ -3581,6 +3583,18 @@ function scheduleSaveDay() {
   saveDayTimer = setTimeout(() => saveDay({ silent: true }), 650);
 }
 
+/** Persist structural edits (move/delete/set) without debounce; wait out an in-flight save first. */
+async function flushSaveDay() {
+  if (state.tab !== "today" || !state.user || !state.token) return;
+  clearTimeout(saveDayTimer);
+  saveDayTimer = null;
+  while (saveDayInFlight) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  scheduleDayNutritionCompute(draftItems, state.mealDraft, () => renderPreservingFocus());
+  await saveDay({ silent: true });
+}
+
 async function saveDay(opts = {}) {
   const silent = Boolean(opts.silent);
   if (saveDayInFlight) {
@@ -3594,25 +3608,14 @@ async function saveDay(opts = {}) {
   saveDayInFlight = true;
   try {
     syncAllSetGramsInDraft(state.mealDraft);
-    const meals = [];
-    const deleteMeals = [];
-    for (const slot of SLOTS) {
-      const items = draftItems(slot);
-      const had = state.day?.meals?.[slot] && ((state.day.meals[slot].items || []).length || state.day.meals[slot].raw);
-      if (!items.length) {
-        if (had) deleteMeals.push(slot);
-        continue;
-      }
-      meals.push({
-        slot,
-        replace: true,
-        items,
-      });
-    }
+    const meals = SLOTS.map((slot) => ({
+      slot,
+      replace: true,
+      items: draftItems(slot),
+    }));
     const body = {
       date: state.date,
       meals,
-      delete_meals: deleteMeals,
       bp: state.mealDraft.bp,
       walking: state.mealDraft.walking,
     };
@@ -3636,7 +3639,9 @@ async function saveDay(opts = {}) {
     saveDayInFlight = false;
     if (saveDayQueued) {
       saveDayQueued = false;
-      scheduleSaveDay();
+      clearTimeout(saveDayTimer);
+      saveDayTimer = null;
+      saveDay({ silent: true });
     }
     if (!silent) {
       state.busy = false;

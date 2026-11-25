@@ -56,13 +56,14 @@ export function moveDraftItemToSlot(fromSlot, idx, toSlot) {
   if (!fromItems) return;
   const it = fromItems[idx];
   if (!it || draftItemIsBlank(it)) return;
+  const moved = cloneDraftItem(it);
   fromItems.splice(idx, 1);
   if (!fromItems.length) fromItems.push(emptyItem());
   const dest = state.mealDraft[toSlot];
   if (!dest.items) dest.items = [];
   let insertAt = dest.items.length;
   while (insertAt > 0 && draftItemIsBlank(dest.items[insertAt - 1])) insertAt--;
-  dest.items.splice(insertAt, 0, it);
+  dest.items.splice(insertAt, 0, moved);
 }
 
 export function pruneBlankSetParts(it) {
