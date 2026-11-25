@@ -894,6 +894,105 @@ func (s *Store) DeleteDay(date string) error {
 	return nil
 }
 
+// applyMealWritesForDay applies multiple slot writes from one POST /log in a single transaction.
+func (s *Store) applyMealWritesForDay(date string, bodies []mealWriteBody) (*Day, []Food, error) {
+	var created []Food
+	type pendingWrite struct {
+		slot    string
+		meal    MealSlot
+		replace bool
+	}
+	writes := make([]pendingWrite, 0, len(bodies))
+	for _, body := range bodies {
+		slot, meal, err := mealFromWriteBody(body)
+		if err != nil {
+			return nil, nil, err
+		}
+		added, err := s.PrepareMealSlot(&meal, body.EnsureFoods)
+		if err != nil {
+			return nil, nil, err
+		}
+		created = append(created, added...)
+		slot = strings.ToLower(strings.TrimSpace(slot))
+		if !ValidMealSlots[slot] {
+			return nil, nil, fmt.Errorf("%w: invalid slot", ErrInvalidInput)
+		}
+		writes = append(writes, pendingWrite{slot: slot, meal: meal, replace: body.Replace})
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.readDayUnlocked(date)
+	if !ok {
+		d = &Day{Date: date, Meals: map[string]MealSlot{}}
+	}
+	dayBefore := *d
+	dayBefore.Meals = map[string]MealSlot{}
+	for slot, m := range d.Meals {
+		dayBefore.Meals[slot] = MealSlot{
+			Raw:        m.Raw,
+			Items:      append([]MealItem(nil), m.Items...),
+			SodiumMg:   m.SodiumMg,
+			Kcal:       m.Kcal,
+			KcalMargin: m.KcalMargin,
+		}
+	}
+	oldStockG := stockGramsByLotIDForDay(&dayBefore)
+	for _, wr := range writes {
+		slot := wr.slot
+		meal := wr.meal
+		replace := wr.replace
+		var oldItems []MealItem
+		if cur, exists := d.Meals[slot]; exists {
+			oldItems = append([]MealItem(nil), cur.Items...)
+		}
+		cur, exists := d.Meals[slot]
+		if replace || !exists {
+			if replace && strings.TrimSpace(meal.Raw) == "" {
+				meal.Raw = ""
+			}
+			d.Meals[slot] = meal
+		} else {
+			if meal.Raw != "" {
+				if cur.Raw != "" {
+					cur.Raw += " + " + meal.Raw
+				} else {
+					cur.Raw = meal.Raw
+				}
+			}
+			cur.Items = append(cur.Items, meal.Items...)
+			if meal.SodiumMg > 0 {
+				cur.SodiumMg += meal.SodiumMg
+			}
+			if meal.Kcal > 0 {
+				cur.Kcal += meal.Kcal
+			}
+			d.Meals[slot] = cur
+		}
+		_ = oldItems
+	}
+	if err := s.syncStockForDayChange(date, oldStockG, stockGramsByLotIDForDay(d)); err != nil {
+		return nil, nil, err
+	}
+	margin := s.mealMarginPercentUnlocked()
+	if DayHasCatalogLinkedItems(d) {
+		RecomputeDayTotalsWithMargin(d, margin)
+	}
+	s.preserveLegacyTotalsLocked(d)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback()
+	if err := s.saveDayTx(tx, d, margin); err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, err
+	}
+	return d, created, nil
+}
+
 func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (*Day, error) {
 	slot = strings.ToLower(strings.TrimSpace(slot))
 	if !ValidMealSlots[slot] {
@@ -911,11 +1010,9 @@ func (s *Store) UpsertMealSlot(date, slot string, meal MealSlot, replace bool) (
 	}
 	cur, exists := d.Meals[slot]
 	if replace || !exists {
-		if replace && exists && strings.TrimSpace(meal.Raw) == "" {
-			// Structured UI replace: drop stale markdown so slot calibration won't crush per-item catalog math.
-			if len(meal.Items) == 0 && strings.TrimSpace(cur.Raw) != "" {
-				meal.Raw = cur.Raw
-			}
+		// Structured UI replace (items_json, no raw): never keep old markdown or GET will re-parse it over items.
+		if replace && strings.TrimSpace(meal.Raw) == "" {
+			meal.Raw = ""
 		}
 		d.Meals[slot] = meal
 	} else {

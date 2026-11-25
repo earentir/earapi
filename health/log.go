@@ -94,20 +94,12 @@ func (s *Store) ApplyLog(req DayLog) (*DayLogResult, error) {
 	}
 
 	var lastDay *Day
-	for _, body := range meals {
-		slot, meal, err := mealFromWriteBody(body)
-		if err != nil {
-			return nil, err
-		}
-		added, err := s.PrepareMealSlot(&meal, body.EnsureFoods)
+	if len(meals) > 0 {
+		d, added, err := s.applyMealWritesForDay(date, meals)
 		if err != nil {
 			return nil, err
 		}
 		created = appendCreatedFoods(created, added)
-		d, err := s.UpsertMealSlot(date, slot, meal, body.Replace)
-		if err != nil {
-			return nil, err
-		}
 		lastDay = d
 	}
 

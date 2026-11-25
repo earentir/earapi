@@ -5,6 +5,61 @@ import (
 	"time"
 )
 
+func TestApplyLogMoveStockLineBetweenSlotsDepletedLot(t *testing.T) {
+	root := t.TempDir()
+	db, err := OpenSharedDB(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(db, root, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	date := "2026-11-25"
+	lot, err := st.UpsertStockLot(StockLot{Name: "omelette", BatchGrams: 300, RemainingGrams: 300})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meal := MealSlot{
+		Items: []MealItem{{Name: "omelette", StockLotID: lot.ID, Grams: 300}},
+	}
+	if _, err := st.PrepareMealSlot(&meal, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertMealSlot(date, "dinner", meal, true); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := st.StockLotByID(lot.ID)
+	if !ok || got.RemainingGrams > 0.01 {
+		t.Fatalf("remaining %v want 0", got.RemainingGrams)
+	}
+	_, err = st.ApplyLog(DayLog{
+		Date: date,
+		Meals: []mealWriteBody{
+			{Slot: "lunch", Replace: true, Items: []MealItem{{Name: "omelette", StockLotID: lot.ID, Grams: 300}}},
+			{Slot: "dinner", Replace: true, Items: nil},
+			{Slot: "snack", Replace: true, Items: nil},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	day, ok := st.GetDay(date)
+	if !ok {
+		t.Fatal("missing day")
+	}
+	if len(day.Meals["dinner"].Items) != 0 {
+		t.Fatalf("dinner %+v", day.Meals["dinner"].Items)
+	}
+	if len(day.Meals["lunch"].Items) != 1 || day.Meals["lunch"].Items[0].StockLotID != lot.ID {
+		t.Fatalf("lunch %+v", day.Meals["lunch"].Items)
+	}
+	got, ok = st.StockLotByID(lot.ID)
+	if !ok || got.RemainingGrams > 0.01 {
+		t.Fatalf("remaining after move %v want 0", got.RemainingGrams)
+	}
+}
+
 func TestScaleMealItemFromExplicitStockLotID(t *testing.T) {
 	root := t.TempDir()
 	db, err := OpenSharedDB(root)

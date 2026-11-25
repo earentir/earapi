@@ -6,6 +6,48 @@ import (
 
 const maxStockScaleDepth = 24
 
+func stockGramsByLotIDForDay(d *Day) map[string]float64 {
+	out := map[string]float64{}
+	if d == nil || d.Meals == nil {
+		return out
+	}
+	for _, m := range d.Meals {
+		for id, g := range stockGramsByLotID(m.Items) {
+			out[id] += g
+		}
+	}
+	return out
+}
+
+// syncStockForDayChange adjusts the ledger when stock-linked grams change across the whole day (e.g. lunch↔dinner move).
+func (s *Store) syncStockForDayChange(date string, oldG, newG map[string]float64) error {
+	ids := map[string]bool{}
+	for id := range oldG {
+		ids[id] = true
+	}
+	for id := range newG {
+		ids[id] = true
+	}
+	for id := range ids {
+		delta := newG[id] - oldG[id]
+		if delta <= 0.01 && delta >= -0.01 {
+			continue
+		}
+		lot, ok := s.stockLotByIDUnlocked(id)
+		if !ok {
+			continue
+		}
+		note := lot.Name
+		if delta < 0 {
+			note = "meal edit removed"
+		}
+		if err := s.applyStockUsageUnlocked(id, delta, "meal", date, "", note); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func stockGramsByLotID(items []MealItem) map[string]float64 {
 	out := map[string]float64{}
 	var walk func([]MealItem)
