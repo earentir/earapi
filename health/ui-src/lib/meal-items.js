@@ -1,3 +1,4 @@
+import { SLOTS } from "./constants.js";
 import { state, emptyItem } from "./state.js";
 
 export function itemHasParts(it) {
@@ -39,6 +40,29 @@ export function loosePeersInSlot(slot, excludeIdx) {
 
 export function partRowIsBlank(p) {
   return !(p?.name || "").trim() && !(Number(p?.grams) > 0);
+}
+
+export function draftItemIsBlank(it) {
+  return !itemHasParts(it)
+    && !(it?.name || "").trim()
+    && !(Number(it?.grams) > 0)
+    && !(Number(it?.count) > 0);
+}
+
+/** Move a top-level item or set between lunch / dinner / snack. */
+export function moveDraftItemToSlot(fromSlot, idx, toSlot) {
+  if (!SLOTS.includes(fromSlot) || !SLOTS.includes(toSlot) || fromSlot === toSlot) return;
+  const fromItems = state.mealDraft[fromSlot]?.items;
+  if (!fromItems) return;
+  const it = fromItems[idx];
+  if (!it || draftItemIsBlank(it)) return;
+  fromItems.splice(idx, 1);
+  if (!fromItems.length) fromItems.push(emptyItem());
+  const dest = state.mealDraft[toSlot];
+  if (!dest.items) dest.items = [];
+  let insertAt = dest.items.length;
+  while (insertAt > 0 && draftItemIsBlank(dest.items[insertAt - 1])) insertAt--;
+  dest.items.splice(insertAt, 0, it);
 }
 
 export function pruneBlankSetParts(it) {

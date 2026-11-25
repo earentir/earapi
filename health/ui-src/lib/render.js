@@ -37,6 +37,8 @@ import {
   absorbIntoSet,
   ejectPartFromSet,
   cloneDraftItem,
+  draftItemIsBlank,
+  moveDraftItemToSlot,
 } from "./meal-items.js";
 import {
   foodByAlias, foodMatchCandidates,
@@ -1102,7 +1104,7 @@ function nameGramsRow(slot, i, it, partIdx) {
   const addPartBtn = !isPart && itemHasParts(it)
     ? rowIconBtn(`data-add-part="${esc(slot)}:${i}"`, "New ingredient", "+")
     : "";
-  const addToSet = !isPart && !itemHasParts(it) ? moveIntoSetControl(slot, i) : "";
+  const moveItem = !isPart ? moveItemControl(slot, i, it) : "";
   const pickOpts = foodPickOptions(it);
   const canPick = showFoodPickUi(it);
   const pickBtn = canPick
@@ -1119,7 +1121,7 @@ function nameGramsRow(slot, i, it, partIdx) {
     : "";
   const nameTitle = needPer100g ? "Not in Foods or Stock: set per 100 g in the kcal and Na columns" : "";
   const nameInput = `<div class="relative min-w-0 flex-1 w-full" data-meal-suggest>
-        <span class="flex items-center gap-1.5 min-w-0 w-full">${stockHint}${stockPickBtn}${pickBtn}<input class="${MEAL_INP} ${MEAL_INP_H} min-w-0 flex-1 w-full" data-field="name" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.name)}" placeholder="${namePh}" autocomplete="off"${nameTitle ? ` title="${esc(nameTitle)}"` : ""}>${addToSet}</span>
+        <span class="flex items-center gap-1.5 min-w-0 w-full">${stockHint}${stockPickBtn}${pickBtn}<input class="${MEAL_INP} ${MEAL_INP_H} min-w-0 flex-1 w-full" data-field="name" data-slot="${esc(slot)}" data-idx="${i}"${partAttr} value="${esc(it.name)}" placeholder="${namePh}" autocomplete="off"${nameTitle ? ` title="${esc(nameTitle)}"` : ""}>${moveItem}</span>
         ${stockPickList(slot, i, partIdx, it)}
         ${foodPickList(slot, i, partIdx, it, pickOpts)}
         ${suggestList(slot, i, partIdx, it.name, { isSetHeader })}
@@ -1163,14 +1165,26 @@ function nameGramsRow(slot, i, it, partIdx) {
   </div>`;
 }
 
-function moveIntoSetControl(slot, i) {
-  const sets = setsInSlot(slot, i);
-  if (!sets.length) return "";
-  const opts = sets.map(({ it, j }) =>
-    `<option value="${j}">${esc((it.name || "Set").trim() || "Set")}</option>`
-  ).join("");
-  return `<select class="select select-bordered select-xs shrink-0 w-[6.5rem] max-w-[100px] ${MEAL_INP_H} min-h-0 py-0 leading-tight" data-into-set="${esc(slot)}:${i}" title="Add to set" aria-label="Add to set">
-    <option value="">→ set</option>${opts}
+function moveItemControl(slot, i, it) {
+  if (slot === "stock" || !SLOTS.includes(slot) || draftItemIsBlank(it)) return "";
+  const loose = !itemHasParts(it);
+  const setOpts = loose
+    ? setsInSlot(slot, i).map(({ it: set, j }) =>
+      `<option value="set:${j}">${esc((set.name || "Set").trim() || "Set")}</option>`
+    ).join("")
+    : "";
+  const slotOpts = SLOTS.filter((s) => s !== slot)
+    .map((s) => `<option value="slot:${esc(s)}">${esc(s)}</option>`)
+    .join("");
+  if (!setOpts && !slotOpts) return "";
+  const setGroup = setOpts
+    ? `<optgroup label="Add to set">${setOpts}</optgroup>`
+    : "";
+  const mealGroup = slotOpts
+    ? `<optgroup label="Move to meal">${slotOpts}</optgroup>`
+    : "";
+  return `<select class="select select-bordered select-xs shrink-0 w-[6.5rem] max-w-[100px] ${MEAL_INP_H} min-h-0 py-0 leading-tight" data-move-item="${esc(slot)}:${i}" title="Add to a set or move to another meal" aria-label="Add to a set or move to another meal">
+    <option value="">→</option>${setGroup}${mealGroup}
   </select>`;
 }
 
@@ -3286,12 +3300,16 @@ function bind() {
       render();
     });
   });
-  app?.querySelectorAll("[data-into-set]").forEach((sel) => {
+  app?.querySelectorAll("[data-move-item]").forEach((sel) => {
     sel.addEventListener("change", () => {
       const v = sel.value;
       if (!v) return;
-      const [slot, i] = sel.dataset.intoSet.split(":");
-      absorbIntoSet(slot, Number(v), Number(i));
+      const [slot, i] = sel.dataset.moveItem.split(":");
+      if (v.startsWith("set:")) {
+        absorbIntoSet(slot, Number(v.slice(4)), Number(i));
+      } else if (v.startsWith("slot:")) {
+        moveDraftItemToSlot(slot, Number(i), v.slice(5));
+      }
       scheduleSaveDay();
       render();
     });
