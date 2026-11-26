@@ -1665,7 +1665,7 @@ function closeStockModalCleanup() {
 async function openStockBatchModal() {
   const editing = !!state.stockForm?.id;
   const f = state.stockForm;
-  const title = editing ? "Edit batch" : "New batch";
+  const title = editing ? "Edit batch" : (f?.clonedFrom ? "Duplicate batch" : "New batch");
   const activeOn = f?.active !== false;
   await customModal({
     title,
@@ -1704,9 +1704,7 @@ function beginNewStockBatch() {
   openStockBatchModal();
 }
 
-function beginEditStockBatch(lotId) {
-  const lot = state.stock.find((x) => x.id === lotId);
-  if (!lot) return;
+function stockRecipeSetFromLot(lot) {
   const set = emptyStockSet();
   set.name = lot.name || "";
   set.is_set = true;
@@ -1719,19 +1717,43 @@ function beginEditStockBatch(lotId) {
     return p;
   });
   if (!set.parts.length) set.parts = [emptyItem()];
-  state.stockForm = {
+  return set;
+}
+
+function openStockFormWithSet(set, formFields) {
+  ensureStockMealDraft();
+  state.mealDraft.stock.items[0] = set;
+  state.stockForm = { ...formFields, set };
+  openStockBatchModal();
+}
+
+function beginEditStockBatch(lotId) {
+  const lot = state.stock.find((x) => x.id === lotId);
+  if (!lot) return;
+  const set = stockRecipeSetFromLot(lot);
+  openStockFormWithSet(set, {
     id: lot.id,
     prepared_date: lot.prepared_date || "",
     batch_grams: lot.batch_grams,
     remaining_grams: lot.remaining_grams,
     active: stockLotActive(lot),
     notes: lot.notes || "",
-    set,
-  };
-  ensureStockMealDraft();
-  state.mealDraft.stock.items[0] = set;
-  state.stockForm.set = set;
-  openStockBatchModal();
+  });
+}
+
+/** New batch with the same recipe (full remaining); source lot unchanged. */
+function beginCloneStockBatch(lotId) {
+  const lot = state.stock.find((x) => x.id === lotId);
+  if (!lot) return;
+  const set = stockRecipeSetFromLot(lot);
+  openStockFormWithSet(set, {
+    clonedFrom: lot.id,
+    prepared_date: state.date || isoDate(new Date()),
+    batch_grams: "",
+    remaining_grams: "",
+    active: true,
+    notes: lot.notes || "",
+  });
 }
 
 function stockView() {
@@ -1757,6 +1779,7 @@ function stockView() {
       ${lot.notes ? `<p class="text-xs text-base-content/60 max-h-20 overflow-auto mt-2 m-0">${esc(lot.notes)}</p>` : ""}
       ${!active && hasLeft ? `<p class="text-xs text-base-content/60 mt-1 m-0">Imported from an old “still in stock” note. Toggle <strong>On</strong> only if it is still in the fridge.</p>` : ""}
       <div class="flex flex-wrap gap-2 mt-2" data-stock-actions>
+        <button type="button" class="btn btn-outline btn-sm" data-clone-stock="${esc(lot.id)}" title="New batch from this recipe">Duplicate</button>
         <button type="button" class="btn btn-outline btn-sm" data-edit-stock="${esc(lot.id)}">Edit</button>
         ${hasLeft && active ? `<button type="button" class="btn btn-primary btn-sm" data-draw-stock="${esc(lot.id)}">Log my meal</button>` : ""}
         ${hasLeft ? `<button type="button" class="btn btn-outline btn-sm" data-stock-use="${esc(lot.id)}">Use (no log)</button>
@@ -3394,6 +3417,12 @@ function bind() {
     }
   });
   document.getElementById("stock-add")?.addEventListener("click", () => beginNewStockBatch());
+  document.querySelectorAll("[data-clone-stock]").forEach((b) => {
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      beginCloneStockBatch(b.dataset.cloneStock);
+    });
+  });
   document.querySelectorAll("[data-edit-stock]").forEach((b) => {
     b.addEventListener("click", (e) => {
       e.stopPropagation();
